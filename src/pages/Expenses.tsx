@@ -9,7 +9,7 @@ import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '../lib/dateU
 import { persistExpenses, deleteExpensePermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED } from '../lib/dataService';
 
 const EXPENSE_CATEGORIES = [
-  'أقمشة ومستلزمات تفصيل',
+  'أقمشة ومستلزمات المخزون',
   'شحن وتوصيل',
   'تغليف ومطبوعات',
   'تسويق وإعلانات',
@@ -35,7 +35,7 @@ export default function Expenses() {
   const [expenseForm, setExpenseForm] = useState({
     description: '',
     amount: '',
-    category: 'أقمشة ومستلزمات تفصيل',
+    category: 'أقمشة ومستلزمات المخزون',
     paymentMethod: 'بنفت بي' as PaymentMethod,
     paidTo: '',
     datetimeStr: toDatetimeLocal(),
@@ -70,7 +70,7 @@ export default function Expenses() {
     setExpenseForm({
       description: '',
       amount: '',
-      category: 'أقمشة ومستلزمات تفصيل',
+      category: 'أقمشة ومستلزمات المخزون',
       paymentMethod: 'بنفت بي',
       paidTo: '',
       datetimeStr: toDatetimeLocal(),
@@ -179,19 +179,19 @@ export default function Expenses() {
 
   return (
     <div className="space-y-3.5 pb-6">
-      {/* Top Mobile Header & Add Button */}
+      {/* Top Header & Add Button */}
       <div className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-[#C7B895]/30 shadow-xs">
         <div>
-          <h1 className="text-base font-extrabold text-[#1D3A30]">سجل المصروفات والنفقات</h1>
+          <h1 className="text-base font-extrabold text-[#1D3A30]">المصروفات</h1>
           <p className="text-[11px] text-[#1D3A30]/70 font-medium">
-            {expenses.length} بند • إجمالي: <span className="font-bold text-rose-700 font-mono">{totalAmount.toFixed(2)} د.ب</span>
+            {expenses.length} مصروف • <span className="font-bold text-rose-700 font-mono">{totalAmount.toFixed(2)} د.ب</span>
           </p>
         </div>
         <button
           onClick={openCreateModal}
-          className="bg-[#1D3A30] text-[#E8D5A8] px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-[#25493D] transition flex items-center gap-1.5 shadow-xs active:scale-95 border border-[#C7B895]/30"
+          className="btn-primary-atelier px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
         >
-          <Plus className="w-4 h-4 text-[#C7B895]" />
+          <Plus className="w-4 h-4 text-[#E8D5A8]" />
           <span>مصروف جديد</span>
         </button>
       </div>
@@ -487,7 +487,7 @@ export default function Expenses() {
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full py-3 bg-[#1D3A30] text-[#E8D5A8] font-bold rounded-xl text-xs hover:bg-[#25493D] transition active:scale-98 shadow-sm border border-[#C7B895]/30"
+                    className="btn-primary-atelier w-full py-3 text-xs font-black rounded-xl transition-all active:scale-98 shadow-sm cursor-pointer"
                   >
                     {modalMode === 'edit' ? 'حفظ التعديلات' : 'تسجيل المصروف'}
                   </button>

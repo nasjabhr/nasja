@@ -59,7 +59,7 @@ export default function NasjahLogo({
               </span>
             </div>
             <p className="text-[10px] text-[#C7B895] font-medium truncate">
-              خياطة وتفصيل الأقمشة
+              أقمشة رجالية فاخرة
             </p>
           </div>
         )}

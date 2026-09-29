@@ -68,33 +68,63 @@ async function startServer() {
   app.get("/api/public-catalog", async (req, res) => {
     try {
       // 1. Try pulling directly from Supabase inventory table
-      let rawFabrics = await getSupabaseFabrics();
-
-      // 2. Fallback to server database if Supabase table returned empty
-      if (!rawFabrics || rawFabrics.length === 0) {
-        const data = getUserData();
-        rawFabrics = data.inventory || [];
+      let rawFabrics: any[] = [];
+      try {
+        rawFabrics = await getSupabaseFabrics();
+      } catch (e) {
+        console.warn("Supabase public fabrics fetch note:", e);
       }
 
-      // 3. Map strictly real fabrics - NO fake items added
-      const catalog = rawFabrics.map((item: any) => {
+      // Filter out packaging items
+      const isPackaging = (item: any) => {
+        if (!item) return false;
+        if (item.category === 'تغليف') return true;
+        const cat = String(item.category || '').toLowerCase();
+        const name = String(item.name || '').toLowerCase();
+        if (cat.includes('تغليف') || cat.includes('packaging') || cat.includes('علب') || cat.includes('كرتون')) return true;
+        if (/تغليف|بوكس|علبة|علب|كرتون|أكياس|كيس|شريط|شرائط/i.test(name)) return true;
+        return false;
+      };
+
+      let fabrics = (rawFabrics || []).filter((item: any) => !isPackaging(item));
+
+      // 2. Also retrieve server database inventory
+      const data = getUserData();
+      const serverFabrics = (data.inventory || []).filter((item: any) => !isPackaging(item));
+
+      // 3. Fallback or merge
+      if (fabrics.length === 0) {
+        fabrics = serverFabrics;
+      } else if (serverFabrics.length > 0) {
+        const map = new Map<string, any>();
+        fabrics.forEach(f => map.set(String(f.id), f));
+        serverFabrics.forEach(f => {
+          map.set(String(f.id), { ...(map.get(String(f.id)) || {}), ...f });
+        });
+        fabrics = Array.from(map.values());
+      }
+
+      // 4. Map strictly real fabrics
+      const catalog = fabrics.map((item: any) => {
         const qty = Number(item.quantity || 0);
         return {
           id: String(item.id),
           name: item.name || '',
           price: Number(item.price || 0),
           quantity: qty,
-          isAvailable: qty >= 3.5, // Standard men's thobe requirement (~3.5m)
-          isLowStock: qty < 3.5 && qty > 0,
+          isAvailable: qty >= 3.0,
+          isLowStock: qty <= 3.0 && qty > 0,
           isOutOfStock: qty <= 0,
           category: item.category || 'أقمشة رجالية فاخرة',
-          season: item.season || '',
+          season: item.season || item.season_type || '',
+          description: item.description || '',
           imageUrl: item.imageUrl || item.image_url || item.image || '',
         };
       });
 
       const storeSettings = getStoreSettings();
 
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.json({ success: true, catalog, settings: storeSettings, timestamp: Date.now() });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -132,8 +162,8 @@ async function startServer() {
 
   app.post("/api/sync", (req, res) => {
     try {
-      const { orders, expenses, inventory } = req.body || {};
-      const result = syncUserData({ orders, expenses, inventory });
+      const { orders, expenses, inventory, customProfits, settings } = req.body || {};
+      const result = syncUserData({ orders, expenses, inventory, customProfits, settings });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

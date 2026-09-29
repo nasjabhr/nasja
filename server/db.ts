@@ -6,6 +6,7 @@ export const MASTER_USER_UID = process.env.MASTER_USER_UID || "0843d2d4-0702-4ec
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
+const SETTINGS_FILE = path.join(DB_DIR, "store_settings.json");
 
 export interface StoreSettings {
   whatsappNumber: string;
@@ -23,8 +24,8 @@ export interface StoreSettings {
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   whatsappNumber: "38244795",
   storeName: "نَسْجَة",
-  storeTagline: "للأقمشة الرجالية وتفصيل الثياب",
-  announcementText: "أقمشة رجالية فاخرة وتفصيل متقن لكافة مناطق البحرين والخليج",
+  storeTagline: "أقمشة رجالية فاخرة ومختارة بعناية",
+  announcementText: "أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة • متوفرة بالقطعة وطاقة القماش",
   instagramHandle: "nasjah.bh",
   defaultThobeMeters: 3.5,
   hideOutOfStock: false,
@@ -37,6 +38,7 @@ export interface UserStoreData {
   orders: any[];
   expenses: any[];
   inventory: any[];
+  customProfits?: any[];
   settings?: StoreSettings;
   lastUpdated: number;
 }
@@ -116,12 +118,13 @@ function writeDatabase(db: DatabaseSchema): void {
   }
 }
 
-export function getUserData(): { orders: any[]; expenses: any[]; inventory: any[] } {
+export function getUserData(): { orders: any[]; expenses: any[]; inventory: any[]; customProfits: any[]; settings: StoreSettings; capital: number } {
   const db = readDatabase();
   const userData = db.users[MASTER_USER_UID] || {
     orders: [],
     expenses: [],
     inventory: [],
+    customProfits: [],
     lastUpdated: Date.now()
   };
 
@@ -129,7 +132,10 @@ export function getUserData(): { orders: any[]; expenses: any[]; inventory: any[
   return {
     orders: userData.orders || [],
     expenses: userData.expenses || [],
-    inventory: userData.inventory || []
+    inventory: userData.inventory || [],
+    customProfits: userData.customProfits || [],
+    settings: getStoreSettings(),
+    capital: (userData as any).capital || 0
   };
 }
 
@@ -137,12 +143,16 @@ export function syncUserData(payload: {
   orders?: any[];
   expenses?: any[];
   inventory?: any[];
-}): { success: boolean; totalOrders: number; totalExpenses: number; totalInventory: number } {
+  customProfits?: any[];
+  settings?: any;
+  capital?: number;
+}): { success: boolean; totalOrders: number; totalExpenses: number; totalInventory: number; totalCustomProfits: number } {
   const db = readDatabase();
   const current = db.users[MASTER_USER_UID] || {
     orders: [],
     expenses: [],
     inventory: DEFAULT_INVENTORY,
+    customProfits: [],
     lastUpdated: Date.now()
   };
 
@@ -155,6 +165,15 @@ export function syncUserData(payload: {
   if (Array.isArray(payload.inventory)) {
     current.inventory = payload.inventory;
   }
+  if (Array.isArray(payload.customProfits)) {
+    current.customProfits = payload.customProfits;
+  }
+  if (typeof payload.capital === 'number') {
+    (current as any).capital = payload.capital;
+  }
+  if (payload.settings && typeof payload.settings === 'object') {
+    saveStoreSettings(payload.settings);
+  }
   current.lastUpdated = Date.now();
 
   db.users[MASTER_USER_UID] = current;
@@ -164,7 +183,8 @@ export function syncUserData(payload: {
     success: true,
     totalOrders: current.orders.length,
     totalExpenses: current.expenses.length,
-    totalInventory: current.inventory.length
+    totalInventory: current.inventory.length,
+    totalCustomProfits: (current.customProfits || []).length
   };
 }
 
@@ -272,6 +292,21 @@ export function resetStoreData(): boolean {
 }
 
 export function getStoreSettings(): StoreSettings {
+  // 1. Try dedicated store_settings.json file
+  try {
+    if (fs.existsSync(SETTINGS_FILE)) {
+      const raw = fs.readFileSync(SETTINGS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        return {
+          ...DEFAULT_STORE_SETTINGS,
+          ...parsed
+        };
+      }
+    }
+  } catch {}
+
+  // 2. Try database.json
   const db = readDatabase();
   const current = db.users[MASTER_USER_UID];
   return {
@@ -281,23 +316,38 @@ export function getStoreSettings(): StoreSettings {
 }
 
 export function saveStoreSettings(settings: Partial<StoreSettings>): StoreSettings {
-  const db = readDatabase();
-  const current = db.users[MASTER_USER_UID] || {
-    orders: [],
-    expenses: [],
-    inventory: [],
-    settings: DEFAULT_STORE_SETTINGS,
-    lastUpdated: Date.now()
-  };
+  const current = getStoreSettings();
   const merged: StoreSettings = {
-    ...DEFAULT_STORE_SETTINGS,
-    ...(current.settings || {}),
+    ...current,
     ...settings
   };
-  current.settings = merged;
-  current.lastUpdated = Date.now();
-  db.users[MASTER_USER_UID] = current;
-  writeDatabase(db);
+
+  // 1. Write to dedicated store_settings.json
+  try {
+    ensureDirectoryExists();
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(merged, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Error writing store_settings.json:", err);
+  }
+
+  // 2. Write to database.json
+  try {
+    const db = readDatabase();
+    const user = db.users[MASTER_USER_UID] || {
+      orders: [],
+      expenses: [],
+      inventory: [],
+      settings: merged,
+      lastUpdated: Date.now()
+    };
+    user.settings = merged;
+    user.lastUpdated = Date.now();
+    db.users[MASTER_USER_UID] = user;
+    writeDatabase(db);
+  } catch (err) {
+    console.warn("Error updating user settings in database.json:", err);
+  }
+
   return merged;
 }
 

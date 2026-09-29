@@ -1,21 +1,26 @@
-import { Fabric, Order, Expense } from '../types';
+import { Fabric, Order, Expense, CustomProfit, StoreSettings, DEFAULT_STORE_SETTINGS } from '../types';
 import { supabase } from './supabase';
 
 export const EVENT_DATA_UPDATED = 'nasjah_store_data_updated';
+export const EVENT_STORE_SETTINGS_UPDATED = 'nasjah_store_settings_updated';
 
 export interface StoreData {
   orders: Order[];
   expenses: Expense[];
   inventory: Fabric[];
   capital?: number;
+  customProfits?: CustomProfit[];
+  settings?: StoreSettings;
 }
 
-// In-memory runtime store (ZERO localStorage persistence)
+// In-memory runtime store
 let cloudStore: StoreData = {
   orders: [],
   expenses: [],
   inventory: [],
-  capital: 0
+  capital: 0,
+  customProfits: [],
+  settings: DEFAULT_STORE_SETTINGS
 };
 
 let isSyncing = false;
@@ -97,6 +102,9 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           payment_status: o.paymentStatus || 'تم الدفع',
           payment_method: o.paymentMethod || 'بنفت بي',
           delivery_method: o.deliveryMethod || '',
+          delivery_type: o.deliveryType || 'قدوم شخصي',
+          delivery_zone: o.deliveryZone || '',
+          delivery_fee: Number(o.deliveryFee) || 0,
           notes: o.notes || '',
           created_at_ms: o.createdAt || Date.now()
         }));
@@ -104,8 +112,8 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         try {
           await supabase.from('orders').upsert(mappedOrders);
         } catch {
-          // Fallback if payment_status column does not exist yet in Supabase table
-          const fallbackOrders = mappedOrders.map(({ payment_status, ...rest }: any) => rest);
+          // Fallback if delivery columns do not exist yet in Supabase table
+          const fallbackOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, payment_status, ...rest }: any) => rest);
           await supabase.from('orders').upsert(fallbackOrders);
         }
 
@@ -129,7 +137,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           user_id: userId,
           description: e.description || '',
           amount: Number(e.amount) || 0,
-          category: e.category || 'أقمشة ومستلزمات تفصيل',
+          category: e.category || 'أقمشة ومستلزمات المخزون',
           payment_method: e.paymentMethod || 'بنفت بي',
           paid_to: e.paidTo || '',
           notes: e.notes || '',
@@ -175,7 +183,32 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
       console.warn('Inventory cloud sync note:', invErr);
     }
 
-    // 4. Safe user metadata fallback in Supabase Auth cloud
+    // 4. Synchronize Custom Profits table
+    try {
+      const profits = data.customProfits || [];
+      const profitIds = profits.map(p => p.id);
+      if (profitIds.length > 0) {
+        const mappedProfits = profits.map(p => ({
+          id: p.id,
+          user_id: userId,
+          amount: Number(p.amount) || 0,
+          description: p.description || '',
+          category: p.category || 'أرباح إضافية',
+          date: p.date || '',
+          created_at_ms: p.createdAt || Date.now()
+        }));
+        await supabase.from('custom_profits').upsert(mappedProfits);
+
+        const inClause = `(${profitIds.map(id => `"${id}"`).join(',')})`;
+        await supabase.from('custom_profits').delete().eq('user_id', userId).not('id', 'in', inClause);
+      } else {
+        await supabase.from('custom_profits').delete().eq('user_id', userId);
+      }
+    } catch {
+      // Table may not exist yet if user hasn't run the SQL script
+    }
+
+    // 5. Safe user metadata fallback in Supabase Auth cloud
     try {
       await supabase.auth.updateUser({
         data: {
@@ -184,6 +217,8 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
             expenses: data.expenses,
             inventory: sanitizeInventoryForMetadata(data.inventory),
             capital: data.capital || 0,
+            customProfits: data.customProfits || [],
+            settings: data.settings || cloudStore.settings || getLocalStoreSettings(),
             lastUpdated: Date.now()
           }
         }
@@ -239,7 +274,9 @@ export async function syncWithServer(): Promise<StoreData> {
     let cloudOrders: Order[] | null = null;
     let cloudExpenses: Expense[] | null = null;
     let cloudInventory: Fabric[] | null = null;
+    let cloudCustomProfits: CustomProfit[] | null = null;
     let cloudCapital: number | null = null;
+    let cloudSettings: StoreSettings | null = null;
     let tablesQueriedSuccessfully = false;
 
     // STEP 1: Attempt to load from Supabase Cloud directly
@@ -250,10 +287,22 @@ export async function syncWithServer(): Promise<StoreData> {
 
         if (session) {
           const metaStore = session.user.user_metadata?.store_data;
-          if (metaStore && typeof metaStore.capital === 'number') {
-            cloudCapital = metaStore.capital;
+          if (metaStore) {
+            if (typeof metaStore.capital === 'number') {
+              cloudCapital = metaStore.capital;
+            }
+            if (metaStore.settings && typeof metaStore.settings === 'object') {
+              cloudSettings = metaStore.settings;
+            }
           }
           try {
+            let profRes: any = { data: null, error: null };
+            try {
+              profRes = await supabase.from('custom_profits').select('*').order('created_at_ms', { ascending: false });
+            } catch {
+              profRes = { data: null, error: true };
+            }
+
             const [ordersRes, expRes, invRes] = await Promise.all([
               supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
               supabase.from('expenses').select('*').order('created_at_ms', { ascending: false }),
@@ -273,6 +322,9 @@ export async function syncWithServer(): Promise<StoreData> {
                 paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
                 paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
                 deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+                deliveryZone: o.delivery_zone || o.deliveryZone || '',
+                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
                 notes: o.notes || '',
                 fabricId: o.fabric_id || o.fabricId || undefined,
                 fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
@@ -287,7 +339,7 @@ export async function syncWithServer(): Promise<StoreData> {
                 id: e.id,
                 description: e.description || '',
                 amount: Number(e.amount || 0),
-                category: e.category || 'أقمشة ومستلزمات تفصيل',
+                category: e.category || 'أقمشة ومستلزمات المخزون',
                 paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
                 paidTo: e.paid_to || e.paidTo || '',
                 notes: e.notes || '',
@@ -308,6 +360,17 @@ export async function syncWithServer(): Promise<StoreData> {
                 barcode: f.barcode || ''
               }));
             }
+
+            if (profRes && !(profRes as any).error && Array.isArray((profRes as any).data)) {
+              cloudCustomProfits = (profRes as any).data.map((p: any) => ({
+                id: p.id,
+                amount: Number(p.amount || 0),
+                description: p.description || '',
+                category: p.category || 'أرباح إضافية',
+                date: p.date || '',
+                createdAt: Number(p.created_at_ms || Date.now())
+              }));
+            }
           } catch (tableErr) {
             console.warn('Tables query note:', tableErr);
           }
@@ -319,6 +382,7 @@ export async function syncWithServer(): Promise<StoreData> {
               if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders)) cloudOrders = metaStore.orders;
               if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(metaStore.expenses)) cloudExpenses = metaStore.expenses;
               if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory)) cloudInventory = metaStore.inventory;
+              if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(metaStore.customProfits)) cloudCustomProfits = metaStore.customProfits;
             }
           }
         }
@@ -345,6 +409,15 @@ export async function syncWithServer(): Promise<StoreData> {
             if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
               cloudInventory = serverData.inventory;
             }
+            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
+              cloudCustomProfits = serverData.customProfits;
+            }
+            if (serverData.settings) {
+              cloudSettings = serverData.settings;
+            }
+            if (typeof serverData.capital === 'number') {
+              cloudCapital = serverData.capital;
+            }
           }
         }
       } catch {
@@ -357,9 +430,17 @@ export async function syncWithServer(): Promise<StoreData> {
       orders: cloudOrders !== null ? cloudOrders : cloudStore.orders,
       expenses: cloudExpenses !== null ? cloudExpenses : cloudStore.expenses,
       inventory: cloudInventory !== null ? cloudInventory : cloudStore.inventory,
-      capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0)
+      capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
+      customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
+      settings: cloudSettings !== null ? cloudSettings : (cloudStore.settings || getLocalStoreSettings())
     };
     isInitialCloudLoadComplete = true;
+
+    if (typeof window !== 'undefined' && cloudStore.settings) {
+      try {
+        localStorage.setItem('nasjah_store_settings', JSON.stringify(cloudStore.settings));
+      } catch {}
+    }
 
     notifyDataChanged();
     return cloudStore;
@@ -589,4 +670,162 @@ export async function resetDatabase(): Promise<void> {
     await fetch('/api/reset-data', { method: 'POST' });
   } catch {}
 }
+
+/**
+ * Persists custom manual profits
+ */
+export async function persistCustomProfits(customProfits: CustomProfit[]): Promise<void> {
+  cloudStore.customProfits = customProfits;
+  notifyDataChanged();
+
+  syncToSupabase(cloudStore).catch(() => {});
+
+  try {
+    await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customProfits })
+    });
+  } catch {}
+}
+
+/**
+ * Adds a new custom manual profit entry
+ */
+export async function addCustomProfit(entry: Omit<CustomProfit, 'id' | 'createdAt'>): Promise<CustomProfit[]> {
+  const newProfit: CustomProfit = {
+    ...entry,
+    id: 'prof_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    createdAt: Date.now()
+  };
+  const updated = [newProfit, ...(cloudStore.customProfits || [])];
+  await persistCustomProfits(updated);
+  return updated;
+}
+
+/**
+ * Permanently deletes a single custom profit entry
+ */
+export async function deleteCustomProfitPermanently(profitId: string): Promise<CustomProfit[]> {
+  const updated = (cloudStore.customProfits || []).filter(p => p.id !== profitId);
+  await persistCustomProfits(updated);
+  if (supabase) {
+    try {
+      await supabase.from('custom_profits').delete().eq('id', profitId);
+    } catch {}
+  }
+  return updated;
+}
+
+/**
+ * Returns latest store settings from memory or local cache
+ */
+export function getLocalStoreSettings(): StoreSettings {
+  if (cloudStore.settings && typeof cloudStore.settings === 'object') {
+    return cloudStore.settings;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('nasjah_store_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          cloudStore.settings = { ...DEFAULT_STORE_SETTINGS, ...parsed };
+          return cloudStore.settings;
+        }
+      }
+    } catch {}
+  }
+  return DEFAULT_STORE_SETTINGS;
+}
+
+/**
+ * Persists store settings across Supabase, LocalStorage, and Backend API
+ */
+export async function persistStoreSettings(settings: Partial<StoreSettings>): Promise<StoreSettings> {
+  let merged: StoreSettings = {
+    ...DEFAULT_STORE_SETTINGS,
+    ...(cloudStore.settings || getLocalStoreSettings()),
+    ...settings
+  };
+  cloudStore.settings = merged;
+
+  // 1. Immediately cache in localStorage for instant offline & cross-tab access
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('nasjah_store_settings', JSON.stringify(merged));
+    } catch {}
+    window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: merged }));
+    window.dispatchEvent(new Event(EVENT_DATA_UPDATED));
+  }
+
+  // 2. Persist to Supabase Auth cloud metadata & store_settings table
+  if (supabase) {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData?.session?.user?.id;
+      if (userId) {
+        try {
+          await supabase.from('store_settings').upsert({
+            user_id: userId,
+            settings: merged,
+            updated_at: new Date().toISOString()
+          });
+        } catch {}
+      }
+
+      await supabase.auth.updateUser({
+        data: {
+          store_data: {
+            orders: cloudStore.orders,
+            expenses: cloudStore.expenses,
+            inventory: sanitizeInventoryForMetadata(cloudStore.inventory),
+            capital: cloudStore.capital || 0,
+            customProfits: cloudStore.customProfits || [],
+            settings: merged,
+            lastUpdated: Date.now()
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Supabase store settings update note:', e);
+    }
+  }
+
+  // 3. Persist to Server API /api/store-settings
+  try {
+    const res = await fetch('/api/store-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(merged)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.settings) {
+        merged = { ...merged, ...data.settings };
+        cloudStore.settings = merged;
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('nasjah_store_settings', JSON.stringify(merged));
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Backend store settings sync note:', err);
+  }
+
+  // 4. Also notify server sync endpoint
+  try {
+    await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: merged })
+    });
+  } catch {}
+
+  notifyDataChanged();
+  return merged;
+}
+
 

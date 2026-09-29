@@ -1,39 +1,30 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { TrendingUp, TrendingDown, DollarSign, Percent, ArrowLeft, RotateCcw, AlertTriangle, FileSpreadsheet, ChevronLeft } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { getLocalData, resetDatabase, syncWithServer, EVENT_DATA_UPDATED, persistCapital } from '../lib/dataService';
+import { Plus, Trash2, X } from 'lucide-react';
+import { 
+  getLocalData, 
+  syncWithServer, 
+  EVENT_DATA_UPDATED, 
+  addCustomProfit,
+  deleteCustomProfitPermanently 
+} from '../lib/dataService';
+import { CustomProfit } from '../types';
 
 export default function Budget() {
-  const [revenues, setRevenues] = useState(0);
-  const [pendingRevenues, setPendingRevenues] = useState(0);
-  const [expenses, setExpenses] = useState(0);
-  const [ordersCount, setOrdersCount] = useState(0);
-  const [expensesCount, setExpensesCount] = useState(0);
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [capital, setCapital] = useState(0);
-  const [showCapitalModal, setShowCapitalModal] = useState(false);
-  const [capitalInput, setCapitalInput] = useState('');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [expensesList, setExpensesList] = useState<any[]>([]);
+  const [customProfitsList, setCustomProfitsList] = useState<CustomProfit[]>([]);
+
+  // Single Add Profit Modal State
+  const [showAddProfitModal, setShowAddProfitModal] = useState(false);
+  const [profitAmount, setProfitAmount] = useState('');
+  const [profitDesc, setProfitDesc] = useState('');
 
   const loadData = () => {
-    const { orders, expenses: expList, capital: cap } = getLocalData();
-    
-    // Only paid orders that are NOT cancelled are included in revenues & net profit
-    const paidSales = orders
-      .filter((order: any) => order.paymentStatus !== 'قيد الدفع' && order.status !== 'ملغي')
-      .reduce((sum: number, order: any) => sum + (order.total || order.price || 0), 0);
-    const pendingSales = orders
-      .filter((order: any) => order.paymentStatus === 'قيد الدفع' && order.status !== 'ملغي')
-      .reduce((sum: number, order: any) => sum + (order.total || order.price || 0), 0);
-      
-    setRevenues(paidSales);
-    setPendingRevenues(pendingSales);
-    setOrdersCount(orders.filter((order: any) => order.status !== 'ملغي').length);
-
-    const totalExp = expList.reduce((sum: number, exp: any) => sum + (Number(exp.amount) || 0), 0);
-    setExpenses(totalExp);
-    setExpensesCount(expList.length);
-    setCapital(cap || 0);
+    const { orders: ords, expenses: expList, customProfits: profs } = getLocalData();
+    setOrders(ords || []);
+    setExpensesList(expList || []);
+    setCustomProfitsList(profs || []);
   };
 
   useEffect(() => {
@@ -45,325 +36,233 @@ export default function Budget() {
     return () => window.removeEventListener(EVENT_DATA_UPDATED, handleUpdate);
   }, []);
 
-  const netProfit = revenues - expenses;
-  const profitMargin = revenues > 0 ? ((netProfit / revenues) * 100).toFixed(1) : '0.0';
+  // 1. Sales calculation: all paid non-cancelled orders + manual profits
+  const paidOrders = orders.filter(
+    (o: any) => o.paymentStatus !== 'قيد الدفع' && o.status !== 'ملغي'
+  );
+  
+  const ordersSales = paidOrders.reduce(
+    (sum: number, o: any) => sum + (Number(o.total || o.price) || 0),
+    0
+  );
 
-  const handleResetData = async () => {
-    await resetDatabase();
+  const manualProfits = customProfitsList.reduce(
+    (sum: number, p: any) => sum + (Number(p.amount) || 0),
+    0
+  );
+
+  const totalSales = ordersSales + manualProfits;
+
+  // 2. Expenses calculation: all expenses recorded
+  const totalExpenses = expensesList.reduce(
+    (sum: number, e: any) => sum + (Number(e.amount) || 0),
+    0
+  );
+
+  // 3. Net Profit
+  const netProfit = totalSales - totalExpenses;
+
+  const handleAddProfitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(profitAmount);
+    if (isNaN(amt) || amt <= 0 || !profitDesc.trim()) return;
+
+    await addCustomProfit({
+      amount: amt,
+      description: profitDesc.trim(),
+      category: 'أرباح إضافية',
+      date: new Date().toISOString().split('T')[0]
+    });
+
+    setShowAddProfitModal(false);
+    setProfitAmount('');
+    setProfitDesc('');
     loadData();
-    setShowResetModal(false);
   };
 
-  const handleSaveCapital = async () => {
-    const parsed = parseFloat(capitalInput);
-    if (!isNaN(parsed) && parsed >= 0) {
-      await persistCapital(parsed);
-      setCapital(parsed);
-    }
-    setShowCapitalModal(false);
-    setCapitalInput('');
+  const handleDeleteProfit = async (id: string) => {
+    await deleteCustomProfitPermanently(id);
+    loadData();
   };
-
-  const totalCashflow = revenues + expenses;
-  const revenuePercent = totalCashflow > 0 ? Math.round((revenues / totalCashflow) * 100) : 50;
 
   return (
-    <div className="h-full flex flex-col justify-between gap-1.5 sm:gap-2.5 pb-1 sm:pb-2 select-none overflow-hidden">
-      {/* Top Header & Actions */}
-      <div className="flex items-center justify-between bg-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-[#C7B895]/30 shadow-xs flex-shrink-0">
-        <div>
-          <h1 className="text-xs sm:text-base font-extrabold text-[#1D3A30]">الميزانية والأرباح</h1>
-          <p className="text-[9px] sm:text-[11px] text-[#1D3A30]/70 font-medium">
-            التحليل المالي لصافي الأرباح وهوامش العائد لـ &apos;نَسْجَة&apos;
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          <button
-            onClick={() => {
-              setCapitalInput(capital > 0 ? String(capital) : '');
-              setShowCapitalModal(true);
-            }}
-            className="bg-[#1D3A30] text-[#E8D5A8] px-2 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold hover:bg-[#25493D] transition flex items-center gap-1 cursor-pointer border border-[#C7B895]/40 shadow-xs"
-            title="تحديد أو تعديل رأس المال"
-          >
-            <DollarSign className="w-3.5 h-3.5 text-[#C7B895]" />
-            <span>{capital > 0 ? `رأس المال: ${capital.toFixed(2)} د.ب` : 'تحديد رأس المال'}</span>
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="bg-[#FAF7F0] text-[#1D3A30] border border-[#C7B895]/30 px-2 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold hover:bg-[#E8D5A8]/40 transition flex items-center gap-1 cursor-pointer"
-            title="طباعة التقرير"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-[#A99872]" />
-            <span className="hidden sm:inline">طباعة</span>
-          </button>
-          <button
-            onClick={() => setShowResetModal(true)}
-            className="bg-rose-50 text-rose-700 px-2 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-bold hover:bg-rose-100 transition border border-rose-200 flex items-center gap-1 cursor-pointer"
-            title="تصفير السجلات والبدء من الصفر"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">تصفير</span>
-          </button>
-        </div>
+    <div className="space-y-3.5 max-w-xl mx-auto w-full select-none text-right font-sans" dir="rtl">
+      
+      {/* Header bar with title and single add-profit button */}
+      <div className="flex items-center justify-between px-1">
+        <h1 className="text-base font-black text-[#1D3A30]">الميزانية</h1>
+        <button
+          type="button"
+          onClick={() => setShowAddProfitModal(true)}
+          className="py-1.5 px-3 rounded-xl bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] border border-[#C7B895]/40 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5 text-[#E8D5A8]" />
+          <span>إضافة مبلغ</span>
+        </button>
       </div>
 
-      {/* Top Section: Net Profit Hero */}
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.99 }} 
-        animate={{ opacity: 1, scale: 1 }} 
-        className={`p-2.5 sm:p-3.5 rounded-2xl sm:rounded-3xl text-center shadow-xs relative overflow-hidden transition-all flex flex-col justify-center border border-[#C7B895]/30 flex-shrink-0 ${
-          netProfit >= 0 
-            ? 'bg-gradient-to-br from-[#1D3A30] via-[#24483C] to-[#142922] text-[#FAF7F0]' 
-            : 'bg-gradient-to-br from-rose-950 via-rose-900 to-rose-950 text-white'
+      {/* Main Budget Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`rounded-3xl p-5 sm:p-6 text-center shadow-xs border transition-all ${
+          netProfit >= 0
+            ? 'bg-[#1D3A30] text-[#FAF7F0] border-[#C7B895]/40'
+            : 'bg-rose-950 text-white border-rose-900'
         }`}
       >
-        <p className="text-[10px] sm:text-xs font-medium text-[#E8D5A8]/80 mb-0.5">صافي الأرباح التشغيلية المحققة</p>
-        <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight my-0.5 text-white font-mono">
-          {netProfit.toFixed(2)} <span className="text-base sm:text-xl font-bold text-[#E8D5A8]">د.ب</span>
-        </h2>
-        {capital > 0 ? (
-          <div className="flex items-center justify-center gap-1.5 sm:gap-3 mt-1 flex-wrap">
-            <span className="text-[9px] sm:text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-lg text-[#FAF7F0]">
-              رأس المال: <strong className="text-[#E8D5A8] font-bold">{capital.toFixed(2)} د.ب</strong>
-            </span>
-            <span className="text-[9px] sm:text-[11px] font-mono bg-white/10 px-2.5 py-0.5 rounded-lg text-[#FAF7F0]">
-              الرصيد الإجمالي: <strong className="text-emerald-300 font-bold">{(capital + netProfit).toFixed(2)} د.ب</strong>
-            </span>
-          </div>
-        ) : (
-          <p className="text-[9px] sm:text-[11px] font-mono text-[#FAF7F0]/80 mt-0.5">
-            {netProfit >= 0 ? '✓ أرباح تشغيلية إيجابية ومستقرة' : '⚠ تنبيه: المصروفات تتجاوز الإيرادات'}
-          </p>
-        )}
-      </motion.div>
+        <span className="text-xs font-bold text-[#E8D5A8] tracking-wide block">
+          صافي الأرباح
+        </span>
 
-      {/* Bottom Section: Exactly 4 Boxes as a 2x2 Grid (2 on top, 2 below) filling the screen */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 flex-1 min-h-0">
-        
-        {/* Box 1 (Top Left in RTL): Cashflow Visual Comparison */}
-        <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-[#C7B895]/30 shadow-xs flex flex-col justify-between overflow-hidden">
-          <div className="flex justify-between items-center text-xs">
-            <span className="font-extrabold text-[#1D3A30] text-[10px] sm:text-xs truncate">التدفق النقدي</span>
-            <span className="text-[10px] sm:text-[11px] text-[#A99872] font-mono font-bold">
-              {revenuePercent}% / {100 - revenuePercent}%
-            </span>
-          </div>
-
-          <div className="my-1 sm:my-1.5 space-y-1">
-            <div className="w-full bg-rose-100 rounded-full h-2 sm:h-2.5 flex overflow-hidden">
-              <div 
-                className="bg-[#1D3A30] h-full transition-all duration-500" 
-                style={{ width: `${revenuePercent}%` }}
-                title={`الإيرادات: ${revenuePercent}%`}
-              />
-              <div 
-                className="bg-rose-500 h-full transition-all duration-500" 
-                style={{ width: `${100 - revenuePercent}%` }}
-                title={`المصروفات: ${100 - revenuePercent}%`}
-              />
-            </div>
-            <div className="flex justify-between text-[9px] sm:text-[11px] font-mono font-bold">
-              <span className="text-[#1D3A30] truncate">+{revenues.toFixed(1)} مبيعات</span>
-              <span className="text-rose-700 truncate">-{expenses.toFixed(1)} مصروف</span>
-            </div>
-          </div>
-
-          <div className="text-[9px] sm:text-[10px] text-[#1D3A30]/70 truncate bg-[#FAF7F0] px-2 py-0.5 rounded-lg border border-[#C7B895]/20">
-            الحركة: <strong className="font-mono text-[#1D3A30]">{totalCashflow.toFixed(2)} د.ب</strong>
-          </div>
+        {/* Net Profit Big Number */}
+        <div className="flex items-baseline justify-center gap-1.5 my-2.5 font-mono">
+          <span className="text-4xl sm:text-5xl font-black tracking-tight text-white">
+            {netProfit >= 0 ? `+${netProfit.toFixed(2)}` : netProfit.toFixed(2)}
+          </span>
+          <span className="text-sm font-bold text-[#E8D5A8]">د.ب</span>
         </div>
 
-        {/* Box 2 (Top Right in RTL): Total Revenue (Sales) */}
-        <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-[#C7B895]/30 shadow-xs flex flex-col justify-between overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] sm:text-[11px] font-bold text-[#1D3A30]/70 uppercase truncate">
-              المبيعات المحصلة
+        {/* Sales vs Expenses Grid */}
+        <div className="grid grid-cols-2 gap-2.5 mt-4 pt-3.5 border-t border-white/10 text-xs">
+          <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
+            <span className="text-[11px] text-[#C7B895] font-bold block mb-1">
+              إجمالي المبيعات
             </span>
-            <Link 
-              to="/orders"
-              className="p-1 sm:p-1.5 bg-[#FAF7F0] text-[#1D3A30] border border-[#C7B895]/30 rounded-lg hover:bg-[#E8D5A8]/40 transition"
-              title="الطلبات"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Link>
+            <span className="text-base sm:text-lg font-black font-mono text-emerald-300 block">
+              +{totalSales.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+            </span>
           </div>
 
-          <div>
-            <h3 className="text-base sm:text-2xl font-black text-[#1D3A30] font-mono">
-              +{revenues.toFixed(2)} <span className="text-xs font-medium">د.ب</span>
-            </h3>
-            <p className="text-[9px] sm:text-[10px] text-[#1D3A30]/60 mt-0.5 truncate">
-              {pendingRevenues > 0 ? (
-                <span className="text-amber-700 font-bold">+{pendingRevenues.toFixed(2)} د.ب معلقة (قيد الدفع)</span>
-              ) : (
-                `من ${ordersCount} طلب مبيعات`
-              )}
-            </p>
-          </div>
-
-          <div className={`text-[9px] sm:text-[10px] px-2 py-0.5 rounded-md font-bold truncate ${
-            pendingRevenues > 0 ? 'bg-amber-50 text-amber-900 border border-amber-200/50' : 'bg-emerald-50 text-emerald-800'
-          }`}>
-            {pendingRevenues > 0 ? '✓ محصلة • لا تشمل المبالغ المعلقة' : '✓ مدخول محصل ومعتمد بالأرباح'}
-          </div>
-        </div>
-
-        {/* Box 3 (Bottom Left in RTL): Total Expenses */}
-        <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-[#C7B895]/30 shadow-xs flex flex-col justify-between overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] sm:text-[11px] font-bold text-rose-800/70 uppercase truncate">
+          <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
+            <span className="text-[11px] text-rose-300 font-bold block mb-1">
               إجمالي المصروفات
             </span>
-            <Link 
-              to="/expenses"
-              className="p-1 sm:p-1.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg hover:bg-rose-100 transition"
-              title="المصروفات"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div>
-            <h3 className="text-base sm:text-2xl font-black text-rose-700 font-mono">
-              -{expenses.toFixed(2)} <span className="text-xs font-medium">د.ب</span>
-            </h3>
-            <p className="text-[9px] sm:text-[10px] text-[#1D3A30]/60 mt-0.5 truncate">من {expensesCount} بند مصروف</p>
-          </div>
-
-          <div className="text-[9px] sm:text-[10px] bg-rose-50 text-rose-800 px-2 py-0.5 rounded-md font-bold truncate">
-            نفقات تشغيل ومواد
-          </div>
-        </div>
-
-        {/* Box 4 (Bottom Right in RTL): Profit Margin */}
-        <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-[#C7B895]/30 shadow-xs flex flex-col justify-between overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] sm:text-[11px] font-bold text-[#A99872] uppercase truncate">
-              هامش الربح التشغيلي
+            <span className="text-base sm:text-lg font-black font-mono text-rose-300 block">
+              -{totalExpenses.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
             </span>
-            <div className="p-1 bg-[#FAF7F0] text-[#1D3A30] border border-[#C7B895]/30 rounded-lg">
-              <Percent className="w-3 h-3 text-[#A99872]" />
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-base sm:text-2xl font-black text-[#1D3A30] font-mono">
-              {profitMargin}%
-            </h3>
-            <div className="w-full bg-[#FAF7F0] border border-[#C7B895]/20 rounded-full h-1.5 overflow-hidden mt-1">
-              <div 
-                className="bg-[#1D3A30] h-full rounded-full transition-all duration-500" 
-                style={{ width: `${Math.min(100, Math.max(0, Number(profitMargin)))}%` }} 
-              />
-            </div>
-          </div>
-
-          <div className="text-[9px] sm:text-[10px] text-[#1D3A30]/70 bg-[#FAF7F0] px-2 py-0.5 rounded-md font-bold truncate">
-            معدل العائد من الإيراد
           </div>
         </div>
+      </motion.div>
 
-      </div>
+      {/* Minimal Profit Log (Only if items exist) */}
+      {customProfitsList.length > 0 && (
+        <div className="bg-white rounded-2xl p-3 border border-[#C7B895]/30 space-y-2 shadow-2xs">
+          <div className="flex items-center justify-between text-xs font-bold text-[#1D3A30] pb-1 border-b border-[#C7B895]/20">
+            <span>المبالغ المضافة ({customProfitsList.length})</span>
+            <span className="font-mono text-emerald-800">+{manualProfits.toFixed(2)} د.ب</span>
+          </div>
 
-      {/* Confirmation Modal for Reset */}
+          <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
+            {customProfitsList.map((profit) => (
+              <div
+                key={profit.id}
+                className="flex items-center justify-between p-2 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-xs"
+              >
+                <div>
+                  <span className="font-bold text-[#1D3A30] block">{profit.description}</span>
+                  <span className="text-[10px] text-[#1D3A30]/60 font-mono">{profit.date || 'اليوم'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold font-mono text-emerald-800">
+                    +{Number(profit.amount).toFixed(2)} د.ب
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProfit(profit.id)}
+                    className="p-1 text-[#1D3A30]/40 hover:text-rose-600 transition cursor-pointer"
+                    title="حذف"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Single modal for adding profit */}
       <AnimatePresence>
-        {showResetModal && (
+        {showAddProfitModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }} 
               animate={{ opacity: 0.6 }} 
               exit={{ opacity: 0 }}
-              onClick={() => setShowResetModal(false)}
+              onClick={() => setShowAddProfitModal(false)}
               className="absolute inset-0 bg-black/60 backdrop-blur-xs"
             />
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }} 
               animate={{ scale: 1, opacity: 1 }} 
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl z-10 text-center space-y-3 border border-[#C7B895]/30"
+              className="relative bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl z-10 text-right space-y-3.5 border border-[#C7B895]/30"
             >
-              <div className="w-12 h-12 bg-rose-50 text-rose-600 border border-rose-200 rounded-2xl flex items-center justify-center mx-auto">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-[#1D3A30]">تصفير سجل العمليات والبدء من جديد</h3>
-              <p className="text-xs text-[#1D3A30]/70 leading-relaxed">
-                هل ترغب في مسح جميع الطلبات والمصروفات المسجلة للبدء بسجل مالي نظيف من الصفر؟ (لن يتم حذف أقمشة المخزون).
-              </p>
-              <div className="grid grid-cols-2 gap-2 pt-2">
+              <div className="flex items-center justify-between border-b border-[#C7B895]/20 pb-2.5">
+                <h3 className="text-xs font-black text-[#1D3A30]">إضافة مبلغ جديد</h3>
                 <button
-                  onClick={handleResetData}
-                  className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition text-xs shadow-xs"
+                  type="button"
+                  onClick={() => setShowAddProfitModal(false)}
+                  className="p-1 rounded-lg text-[#1D3A30]/50 hover:text-[#1D3A30] cursor-pointer"
                 >
-                  نعم، تصفير السجل
+                  <X className="w-4 h-4" />
                 </button>
-                <button
-                  onClick={() => setShowResetModal(false)}
-                  className="py-2.5 bg-stone-100 text-stone-700 hover:bg-stone-200 font-bold rounded-xl transition text-xs border border-stone-200"
-                >
-                  إلغاء
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-      {/* Capital Edit Modal */}
-      <AnimatePresence>
-        {showCapitalModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 0.6 }} 
-              exit={{ opacity: 0 }}
-              onClick={() => setShowCapitalModal(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-xs"
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl z-10 text-center space-y-3 border border-[#C7B895]/30"
-            >
-              <div className="w-12 h-12 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <DollarSign className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-[#1D3A30]">تحديد رأس المال</h3>
-              <p className="text-xs text-[#1D3A30]/70 leading-relaxed mb-4">
-                أدخل قيمة رأس المال الإجمالي للمشروع.
-              </p>
-              
-              <div className="text-right">
-                <label className="block text-xs font-bold text-[#1D3A30] mb-1.5">رأس المال (د.ب)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={capitalInput}
-                  onChange={(e) => setCapitalInput(e.target.value)}
-                  placeholder="0.00"
-                  className="w-full bg-[#FAF7F0] border border-[#C7B895]/40 rounded-xl px-4 py-2.5 text-sm text-[#1D3A30] font-mono focus:outline-none focus:ring-1 focus:ring-[#1D3A30]"
-                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-2">
-                <button
-                  onClick={handleSaveCapital}
-                  className="py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] font-bold rounded-xl transition text-xs shadow-xs"
-                >
-                  حفظ
-                </button>
-                <button
-                  onClick={() => setShowCapitalModal(false)}
-                  className="py-2.5 bg-stone-100 text-stone-700 hover:bg-stone-200 font-bold rounded-xl transition text-xs border border-stone-200"
-                >
-                  إلغاء
-                </button>
-              </div>
+              <form onSubmit={handleAddProfitSubmit} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
+                    المبلغ بالدينار (د.ب) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    autoFocus
+                    placeholder="0.00"
+                    value={profitAmount}
+                    onChange={(e) => setProfitAmount(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-sm font-mono font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
+                    البيان *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="بيان المبلغ..."
+                    value={profitDesc}
+                    onChange={(e) => setProfitDesc(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="submit"
+                    className="py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] font-bold rounded-xl transition text-xs shadow-xs cursor-pointer"
+                  >
+                    حفظ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddProfitModal(false)}
+                    className="py-2.5 bg-stone-100 text-stone-700 hover:bg-stone-200 font-bold rounded-xl transition text-xs border border-stone-200 cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

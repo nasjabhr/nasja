@@ -3,12 +3,12 @@ import {
   Plus, FileText, Phone, Trash2, CheckCircle2, Clock, Search, 
   MessageSquare, Eye, X, Printer, Download, Edit3, Calendar, 
   CreditCard, AlertTriangle, Filter, RotateCcw, ChevronDown,
-  Ruler, Layers, Minus, Sparkles, Check
+  Ruler, Layers, Minus, Sparkles, Check, Truck, User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { Fabric, Order, OrderStatus, PaymentMethod, PaymentStatus, isOrderPaid } from '../types';
+import { Fabric, Order, OrderStatus, PaymentMethod, PaymentStatus, DeliveryType, DeliveryZone, isOrderPaid } from '../types';
 import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '../lib/dateUtils';
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
@@ -60,9 +60,43 @@ export default function Orders() {
     status: 'قيد التجهيز' as OrderStatus,
     paymentStatus: 'تم الدفع' as PaymentStatus,
     paymentMethod: 'بنفت بي' as PaymentMethod,
+    deliveryType: 'قدوم شخصي' as DeliveryType,
+    deliveryZone: 'قريب' as DeliveryZone,
+    deliveryFee: 0,
     datetimeStr: toDatetimeLocal(),
     notes: ''
   });
+
+  const handleDeliveryTypeChange = (type: DeliveryType) => {
+    const currentZone = orderForm.deliveryZone || 'قريب';
+    const newFee = type === 'توصيل' ? (currentZone === 'بعيد' ? 2 : currentZone === 'متوسط' ? 1 : 0) : 0;
+    const oldFee = orderForm.deliveryFee || 0;
+    const currentTotal = parseFloat(orderForm.price) || 0;
+    const basePrice = Math.max(0, currentTotal - oldFee);
+    const updatedTotal = (basePrice + newFee).toFixed(2);
+
+    setOrderForm(prev => ({
+      ...prev,
+      deliveryType: type,
+      deliveryFee: newFee,
+      price: updatedTotal
+    }));
+  };
+
+  const handleDeliveryZoneChange = (zone: DeliveryZone) => {
+    const newFee = zone === 'بعيد' ? 2 : zone === 'متوسط' ? 1 : 0;
+    const oldFee = orderForm.deliveryFee || 0;
+    const currentTotal = parseFloat(orderForm.price) || 0;
+    const basePrice = Math.max(0, currentTotal - oldFee);
+    const updatedTotal = (basePrice + newFee).toFixed(2);
+
+    setOrderForm(prev => ({
+      ...prev,
+      deliveryZone: zone,
+      deliveryFee: newFee,
+      price: updatedTotal
+    }));
+  };
 
   useEffect(() => {
     const local = getLocalData();
@@ -105,6 +139,9 @@ export default function Orders() {
       status: 'قيد التجهيز',
       paymentStatus: 'تم الدفع',
       paymentMethod: 'بنفت بي',
+      deliveryType: 'قدوم شخصي',
+      deliveryZone: 'قريب',
+      deliveryFee: 0,
       datetimeStr: toDatetimeLocal(),
       notes: ''
     });
@@ -133,10 +170,13 @@ export default function Orders() {
       customerName: order.customerName,
       phone: order.phone,
       details: order.details,
-      price: String(order.price),
+      price: String(order.price || order.total || ''),
       status: order.status || 'قيد التجهيز',
       paymentStatus: (order.paymentStatus || 'تم الدفع') as PaymentStatus,
       paymentMethod: (order.paymentMethod as PaymentMethod) || 'بنفت بي',
+      deliveryType: (order.deliveryType as DeliveryType) || 'قدوم شخصي',
+      deliveryZone: (order.deliveryZone as DeliveryZone) || 'قريب',
+      deliveryFee: Number(order.deliveryFee || 0),
       datetimeStr: toDatetimeLocal(order.createdAt),
       notes: order.notes || ''
     });
@@ -296,19 +336,31 @@ export default function Orders() {
 
     const createdAtMs = fromDatetimeLocal(orderForm.datetimeStr);
 
-    // STEP 1: Deduct meters from inventory
-    if (!customFabricMode && selectedFabricId && chosenFabric) {
-      let updatedFabrics = [...fabrics];
+    // STEP 1: Inventory deductions (Packaging items + Fabric meters)
+    let updatedFabrics = [...fabrics];
 
-      if (modalMode === 'create') {
-        updatedFabrics = updatedFabrics.map(f => {
-          if (f.id === selectedFabricId) {
-            const newQty = Math.max(0, (Number(f.quantity) || 0) - effectiveMeters);
-            return { ...f, quantity: Math.round(newQty * 10) / 10 };
-          }
-          return f;
-        });
-      } else if (modalMode === 'edit') {
+    if (modalMode === 'create') {
+      updatedFabrics = updatedFabrics.map(f => {
+        let currentQty = Number(f.quantity) || 0;
+
+        // 1. Deduct 1 piece from ALL packaging items for every new order
+        if (f.category === 'تغليف') {
+          return { ...f, quantity: Math.max(0, currentQty - 1) };
+        }
+
+        // 2. Deduct meters from selected fabric if applicable
+        if (!customFabricMode && selectedFabricId && f.id === selectedFabricId) {
+          const newQty = Math.max(0, currentQty - effectiveMeters);
+          return { ...f, quantity: Math.round(newQty * 10) / 10 };
+        }
+
+        return f;
+      });
+
+      setFabrics(updatedFabrics);
+      persistInventory(updatedFabrics).catch(() => {});
+    } else if (modalMode === 'edit') {
+      if (!customFabricMode && selectedFabricId && chosenFabric) {
         const prevOrder = orders.find(o => o.id === editingOrderId);
         // If order had a previous fabric, restore its meters first
         if (prevOrder?.fabricId) {
@@ -328,10 +380,10 @@ export default function Orders() {
           }
           return f;
         });
-      }
 
-      setFabrics(updatedFabrics);
-      persistInventory(updatedFabrics).catch(() => {});
+        setFabrics(updatedFabrics);
+        persistInventory(updatedFabrics).catch(() => {});
+      }
     }
 
     // STEP 2: Save order
@@ -353,6 +405,9 @@ export default function Orders() {
             status: orderForm.status,
             paymentStatus: orderForm.paymentStatus || 'تم الدفع',
             paymentMethod: orderForm.paymentMethod,
+            deliveryType: orderForm.deliveryType || 'قدوم شخصي',
+            deliveryZone: orderForm.deliveryType === 'توصيل' ? (orderForm.deliveryZone || 'قريب') : undefined,
+            deliveryFee: orderForm.deliveryType === 'توصيل' ? Number(orderForm.deliveryFee || 0) : 0,
             notes: orderForm.notes.trim(),
             createdAt: createdAtMs,
             fabricId: finalFabricId,
@@ -374,6 +429,9 @@ export default function Orders() {
         status: orderForm.status,
         paymentStatus: orderForm.paymentStatus || 'تم الدفع',
         paymentMethod: orderForm.paymentMethod,
+        deliveryType: orderForm.deliveryType || 'قدوم شخصي',
+        deliveryZone: orderForm.deliveryType === 'توصيل' ? (orderForm.deliveryZone || 'قريب') : undefined,
+        deliveryFee: orderForm.deliveryType === 'توصيل' ? Number(orderForm.deliveryFee || 0) : 0,
         notes: orderForm.notes.trim(),
         createdAt: createdAtMs,
         fabricId: finalFabricId,
@@ -392,18 +450,19 @@ export default function Orders() {
     if (!orderToDelete) return;
     const orderId = orderToDelete.id;
 
-    // Restore fabric inventory meters if this order had deducted meters
-    if (orderToDelete.fabricId && orderToDelete.fabricMeters) {
-      const restoredFabrics = fabrics.map(f => {
-        if (f.id === orderToDelete.fabricId) {
-          const restored = (Number(f.quantity) || 0) + (orderToDelete.fabricMeters || 0);
-          return { ...f, quantity: Math.round(restored * 10) / 10 };
-        }
-        return f;
-      });
-      setFabrics(restoredFabrics);
-      persistInventory(restoredFabrics).catch(() => {});
-    }
+    // Restore packaging and fabric meters
+    let restoredFabrics = fabrics.map(f => {
+      let qty = Number(f.quantity) || 0;
+      if (f.category === 'تغليف') {
+        return { ...f, quantity: qty + 1 };
+      }
+      if (orderToDelete.fabricId && f.id === orderToDelete.fabricId && orderToDelete.fabricMeters) {
+        return { ...f, quantity: Math.round((qty + orderToDelete.fabricMeters) * 10) / 10 };
+      }
+      return f;
+    });
+    setFabrics(restoredFabrics);
+    persistInventory(restoredFabrics).catch(() => {});
 
     setOrderToDelete(null);
     if (selectedInvoice?.id === orderId) {
@@ -529,24 +588,24 @@ export default function Orders() {
 
   return (
     <div className="space-y-3.5 pb-6">
-      {/* Top Mobile Header & Add Button */}
+      {/* Top Header & Add Button */}
       <div className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-[#C7B895]/30 shadow-xs">
         <div>
-          <h1 className="text-base font-extrabold text-[#1D3A30]">سجل الطلبات والمبيعات</h1>
+          <h1 className="text-base font-extrabold text-[#1D3A30]">الطلبات</h1>
           <p className="text-[11px] text-[#1D3A30]/70 font-medium">
-            {orders.length} طلب • {paidRevenue.toFixed(2)} د.ب محصلة
+            {orders.length} طلب • {paidRevenue.toFixed(2)} د.ب
             {pendingPaymentCount > 0 && (
-              <span className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded font-bold mr-1.5 border border-amber-200/60">
-                +{pendingPaymentRevenue.toFixed(2)} د.ب معلقة ({pendingPaymentCount} قيد الدفع)
+              <span className="text-amber-800 font-bold mr-1.5">
+                • {pendingPaymentRevenue.toFixed(2)} د.ب قيد الدفع
               </span>
             )}
           </p>
         </div>
         <button
           onClick={openCreateModal}
-          className="bg-[#1D3A30] text-[#E8D5A8] px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-[#25493D] transition flex items-center gap-1.5 shadow-xs active:scale-95 border border-[#C7B895]/30"
+          className="btn-primary-atelier px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
         >
-          <Plus className="w-4 h-4 text-[#C7B895]" />
+          <Plus className="w-4 h-4 text-[#E8D5A8]" />
           <span>طلب جديد</span>
         </button>
       </div>
@@ -751,9 +810,10 @@ export default function Orders() {
           <p className="text-xs text-[#1D3A30]/60 mt-1">جرب تغيير شروط البحث أو الفلاتر</p>
           <button
             onClick={openCreateModal}
-            className="mt-4 bg-[#1D3A30] text-[#E8D5A8] text-xs font-bold px-4 py-2.5 rounded-xl border border-[#C7B895]/40"
+            className="btn-primary-atelier mt-4 text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer inline-flex items-center gap-1.5"
           >
-            + إضافة طلب جديد الآن
+            <Plus className="w-4 h-4 text-[#E8D5A8]" />
+            <span>إضافة أول طلب الآن</span>
           </button>
         </div>
       ) : (
@@ -824,15 +884,6 @@ export default function Orders() {
                       {Number(order.price || order.total).toFixed(2)}{' '}
                       <span className="text-[10px] font-bold text-[#A99872]">د.ب</span>
                     </span>
-                    {order.paymentStatus === 'قيد الدفع' ? (
-                      <span className="text-[9px] font-bold text-amber-700 block whitespace-nowrap">
-                        معلق للأرباح
-                      </span>
-                    ) : (
-                      <span className="text-[9px] font-bold text-emerald-700 block whitespace-nowrap">
-                        محصل بالأرباح
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -867,6 +918,24 @@ export default function Orders() {
                   <p className="text-xs text-[#1D3A30]/80 font-medium mt-1 leading-relaxed">
                     {order.details}
                   </p>
+
+                  {/* Delivery Mode Badge */}
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    {order.deliveryType === 'توصيل' ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#25493D]/10 text-[#1D3A30] border border-[#C7B895]/40">
+                        <Truck className="w-3 h-3 text-[#A99872]" />
+                        <span>
+                          توصيل {order.deliveryZone ? `• ${order.deliveryZone}` : ''}
+                          {Number(order.deliveryFee || 0) > 0 && ` (+${order.deliveryFee} د.ب)`}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#FAF7F0] text-[#1D3A30]/80 border border-[#C7B895]/30">
+                        <User className="w-3 h-3 text-[#A99872]" />
+                        <span>قدوم شخصي</span>
+                      </span>
+                    )}
+                  </div>
 
                   {order.notes && (
                     <p className="text-[10px] bg-[#FAF7F0] text-[#1D3A30] p-1.5 rounded-lg mt-1.5 border border-[#C7B895]/30">
@@ -1353,6 +1422,108 @@ export default function Orders() {
                   </div>
                 </div>
 
+                {/* Delivery Mechanism (آلية الاستلام والتوصيل) */}
+                <div className="bg-[#FAF7F0] p-3 rounded-2xl border border-[#C7B895]/40 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-extrabold text-[#1D3A30] flex items-center gap-1.5">
+                      <Truck className="w-3.5 h-3.5 text-[#A99872]" />
+                      <span>آلية الاستلام *</span>
+                    </label>
+                    <span className="text-[10px] text-[#A99872] font-bold">
+                      {orderForm.deliveryType === 'توصيل' 
+                        ? (orderForm.deliveryFee > 0 ? `+${orderForm.deliveryFee} د.ب` : 'مجاني')
+                        : 'استلام مباشر'}
+                    </span>
+                  </div>
+
+                  {/* 2 Main Buttons: قدوم شخصي vs توصيل */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDeliveryTypeChange('قدوم شخصي')}
+                      className={cn(
+                        "p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98",
+                        orderForm.deliveryType === 'قدوم شخصي'
+                          ? "bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs"
+                          : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
+                      )}
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span>قدوم شخصي</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeliveryTypeChange('توصيل')}
+                      className={cn(
+                        "p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98",
+                        orderForm.deliveryType === 'توصيل'
+                          ? "bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs"
+                          : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
+                      )}
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      <span>توصيل</span>
+                    </button>
+                  </div>
+
+                  {/* If توصيل is chosen, show the 3 zone options */}
+                  {orderForm.deliveryType === 'توصيل' && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="pt-2 border-t border-[#C7B895]/30 space-y-2"
+                    >
+                      <span className="text-[10px] font-bold text-[#1D3A30]/80 block">
+                        نطاق التوصيل:
+                      </span>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleDeliveryZoneChange('قريب')}
+                          className={cn(
+                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
+                            orderForm.deliveryZone === 'قريب'
+                              ? "bg-emerald-800 text-white border-emerald-800 shadow-xs"
+                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-emerald-50"
+                          )}
+                        >
+                          <span className="text-[11px] font-black">قريب</span>
+                          <span className="text-[9px] font-bold opacity-90">مجاني</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeliveryZoneChange('متوسط')}
+                          className={cn(
+                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
+                            orderForm.deliveryZone === 'متوسط'
+                              ? "bg-[#A99872] text-[#FAF7F0] border-[#A99872] shadow-xs"
+                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
+                          )}
+                        >
+                          <span className="text-[11px] font-black">متوسط</span>
+                          <span className="text-[9px] font-bold opacity-90">+1 د.ب</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeliveryZoneChange('بعيد')}
+                          className={cn(
+                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
+                            orderForm.deliveryZone === 'بعيد'
+                              ? "bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs"
+                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
+                          )}
+                        >
+                          <span className="text-[11px] font-black">بعيد</span>
+                          <span className="text-[9px] font-bold opacity-90">+2 د.ب</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
+
                 {/* Date & Time Picker */}
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
@@ -1394,10 +1565,10 @@ export default function Orders() {
                         type="submit"
                         disabled={isStockBlocking}
                         className={cn(
-                          "w-full py-3 font-bold rounded-xl text-xs transition active:scale-98 shadow-sm border",
+                          "w-full py-3 rounded-xl text-xs font-black transition-all active:scale-98 shadow-sm cursor-pointer",
                           isStockBlocking
-                            ? "bg-red-100 text-red-700 border-red-300 cursor-not-allowed opacity-80"
-                            : "bg-[#1D3A30] text-[#E8D5A8] hover:bg-[#25493D] border-[#C7B895]/30"
+                            ? "bg-rose-100 text-rose-800 border border-rose-300 cursor-not-allowed opacity-80"
+                            : "btn-primary-atelier"
                         )}
                       >
                         {isStockBlocking 
@@ -1472,6 +1643,15 @@ export default function Orders() {
                   <span>حالة الطلب: {selectedInvoice.status || 'قيد التجهيز'}</span>
                 </div>
 
+                <div className="flex items-center justify-between text-[10px] text-[#1D3A30]/80">
+                  <span>آلية الاستلام: {selectedInvoice.deliveryType || 'قدوم شخصي'}</span>
+                  <span>
+                    {selectedInvoice.deliveryType === 'توصيل' 
+                      ? `نطاق: ${selectedInvoice.deliveryZone || 'قريب'} (${Number(selectedInvoice.deliveryFee || 0) > 0 ? `+${selectedInvoice.deliveryFee} د.ب` : 'مجاني'})`
+                      : 'استلام من المحل'}
+                  </span>
+                </div>
+
                 <div className="flex items-center justify-between text-[11px] pt-1">
                   <span className="text-[#1D3A30]/70 font-medium">حالة السداد والأرباح:</span>
                   {selectedInvoice.paymentStatus === 'قيد الدفع' ? (
@@ -1491,14 +1671,14 @@ export default function Orders() {
               <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#C7B895]/20">
                 <button
                   onClick={() => generatePDF(selectedInvoice)}
-                  className="py-2.5 bg-[#1D3A30] text-[#E8D5A8] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-[#25493D] transition border border-[#C7B895]/30"
+                  className="btn-primary-atelier py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
                 >
-                  <Download className="w-3.5 h-3.5 text-[#C7B895]" />
+                  <Download className="w-3.5 h-3.5 text-[#E8D5A8]" />
                   <span>تحميل PDF</span>
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="py-2.5 bg-[#FAF7F0] text-[#1D3A30] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-[#F4EBD4] transition border border-[#C7B895]/30"
+                  className="btn-secondary-atelier py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5 text-[#1D3A30]" />
                   <span>طباعة</span>

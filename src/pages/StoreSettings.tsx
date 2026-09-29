@@ -20,36 +20,45 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { StoreSettings, DEFAULT_STORE_SETTINGS } from '../types';
+import { getLocalStoreSettings, persistStoreSettings, syncWithServer } from '../lib/dataService';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import NasjahLogo from '../components/NasjahLogo';
 
 export default function StoreSettingsPage() {
-  const [settings, setSettings] = useState<StoreSettings>(DEFAULT_STORE_SETTINGS);
-  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<StoreSettings>(() => getLocalStoreSettings());
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Fetch current store settings
   useEffect(() => {
+    // 1. Initial local load
+    const cached = getLocalStoreSettings();
+    if (cached) {
+      setSettings(cached);
+    }
+
     async function loadSettings() {
       try {
-        const res = await fetch('/api/store-settings');
+        const res = await fetch(`/api/store-settings?t=${Date.now()}`);
         if (res.ok) {
           const data = await res.json();
           if (data.settings) {
-            setSettings({
+            const fresh: StoreSettings = {
               ...DEFAULT_STORE_SETTINGS,
               ...data.settings,
               seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0 
                 ? data.settings.seasonsOrder 
                 : ['winter', 'summer', 'spring']
-            });
+            };
+            setSettings(fresh);
+            try {
+              localStorage.setItem('nasjah_store_settings', JSON.stringify(fresh));
+            } catch {}
           }
         }
       } catch (err) {
         console.error('Error fetching store settings:', err);
-      } finally {
-        setLoading(false);
       }
     }
 
@@ -78,20 +87,11 @@ export default function StoreSettingsPage() {
     setSaveSuccess(false);
 
     try {
-      const res = await fetch('/api/store-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.settings) {
-          setSettings(data.settings);
-        }
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 4000);
-      }
+      // Multi-layer persistence across Supabase, LocalStorage, and Backend
+      const updated = await persistStoreSettings(settings);
+      setSettings(updated);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err) {
       console.error('Failed to save settings', err);
     } finally {
@@ -191,7 +191,7 @@ export default function StoreSettingsPage() {
               <div>
                 <h2 className="text-sm font-black text-[#1D3A30]">رقم التحدث والتواصل مع الزبائن (واتساب)</h2>
                 <p className="text-[11px] text-[#1D3A30]/65">
-                  هذا الرقم هو المعتمد في كافة أزرار الطلب والاستفسار وحاسبة تفصيل الثياب في المتجر
+                  هذا الرقم هو المعتمد في كافة أزرار الطلب والاستفسار وحاسبة أمتار الأقمشة في المتجر
                 </p>
               </div>
             </div>
@@ -282,7 +282,7 @@ export default function StoreSettingsPage() {
                   type="text"
                   value={settings.storeTagline}
                   onChange={(e) => setSettings({ ...settings, storeTagline: e.target.value })}
-                  placeholder="للأقمشة الرجالية وتفصيل الثياب"
+                  placeholder="أقمشة رجالية فاخرة ومختارة بعناية"
                   className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
                 />
               </div>
@@ -308,7 +308,7 @@ export default function StoreSettingsPage() {
                 type="text"
                 value={settings.announcementText}
                 onChange={(e) => setSettings({ ...settings, announcementText: e.target.value })}
-                placeholder="أقمشة رجالية فاخرة وتفصيل متقن لكافة مناطق البحرين والخليج"
+                placeholder="أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة • متوفرة بالقطعة وطاقة القماش"
                 className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
               />
             </div>
@@ -472,12 +472,12 @@ export default function StoreSettingsPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] text-xs font-bold rounded-xl transition shadow-sm active:scale-95 disabled:opacity-70 cursor-pointer"
+                className="btn-primary-atelier flex items-center gap-2 px-6 py-2.5 text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-70 cursor-pointer"
               >
                 {saving ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-[#E8D5A8]" />
                 ) : (
-                  <Save className="w-4 h-4 text-[#C7B895]" />
+                  <Save className="w-4 h-4 text-[#E8D5A8]" />
                 )}
                 <span>{saving ? 'جارِ الحفظ...' : 'حفظ إعدادات المتجر'}</span>
               </button>

@@ -31,7 +31,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/orders" element={<Orders />} />
             <Route path="/inventory" element={<Inventory />} />
-            <Route path="/budget" element={<Budget />} />
+            <Route path="/budget" element={<Navigate to="/?budget=open" replace />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/store-settings" element={<StoreSettings />} />
