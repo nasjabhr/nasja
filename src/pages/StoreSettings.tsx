@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { 
   Store, 
   Phone, 
   Save, 
   CheckCircle2, 
+  AlertCircle,
   ExternalLink, 
   Sparkles, 
   ShieldCheck, 
@@ -20,50 +21,122 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { StoreSettings, DEFAULT_STORE_SETTINGS } from '../types';
-import { getLocalStoreSettings, persistStoreSettings, syncWithServer } from '../lib/dataService';
+import { getLocalStoreSettings, persistStoreSettings, syncWithServer, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
+import { supabase } from '../lib/supabase';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import NasjahLogo from '../components/NasjahLogo';
 
 export default function StoreSettingsPage() {
   const [settings, setSettings] = useState<StoreSettings>(() => getLocalStoreSettings());
+  const settingsRef = useRef<StoreSettings>(settings);
+  settingsRef.current = settings;
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const isDirtyRef = useRef(false);
+  const lastSavedTimeRef = useRef<number>(0);
 
-  // Fetch current store settings
+  // Fetch current store settings on mount
   useEffect(() => {
     // 1. Initial local load
     const cached = getLocalStoreSettings();
     if (cached) {
       setSettings(cached);
+      settingsRef.current = cached;
     }
 
     async function loadSettings() {
+      let candidate: StoreSettings | null = null;
+
+      // A. Direct Supabase Cloud load (works seamlessly on Vercel and all frontends)
+      if (supabase) {
+        try {
+          const { data: invRow } = await supabase
+            .from('inventory')
+            .select('image_url')
+            .eq('id', '__store_settings__')
+            .maybeSingle();
+
+          if (invRow?.image_url) {
+            try {
+              const parsed = JSON.parse(invRow.image_url);
+              if (parsed && typeof parsed === 'object') {
+                candidate = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...parsed,
+                  seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0 
+                    ? parsed.seasonsOrder 
+                    : ['winter', 'summer', 'spring']
+                };
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      // B. Direct server API load (when running with Express backend)
       try {
         const res = await fetch(`/api/store-settings?t=${Date.now()}`);
         if (res.ok) {
-          const data = await res.json();
-          if (data.settings) {
-            const fresh: StoreSettings = {
-              ...DEFAULT_STORE_SETTINGS,
-              ...data.settings,
-              seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0 
-                ? data.settings.seasonsOrder 
-                : ['winter', 'summer', 'spring']
-            };
-            setSettings(fresh);
-            try {
-              localStorage.setItem('nasjah_store_settings', JSON.stringify(fresh));
-            } catch {}
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const data = await res.json();
+            if (data?.settings) {
+              const serverTime = data.settings.updatedAt || 0;
+              const candTime = candidate?.updatedAt || 0;
+              if (!candidate || serverTime >= candTime) {
+                candidate = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...(candidate || {}),
+                  ...data.settings,
+                  seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0 
+                    ? data.settings.seasonsOrder 
+                    : ['winter', 'summer', 'spring']
+                };
+              }
+            }
           }
         }
-      } catch (err) {
-        console.error('Error fetching store settings:', err);
+      } catch {}
+
+      // Only apply if user is NOT actively typing and candidate is newer than local
+      if (candidate && !isDirtyRef.current) {
+        const candTime = candidate.updatedAt || 0;
+        const currTime = settingsRef.current?.updatedAt || 0;
+        if (candTime >= currTime) {
+          setSettings(candidate);
+          settingsRef.current = candidate;
+          try {
+            localStorage.setItem('nasjah_store_settings', JSON.stringify(candidate));
+          } catch {}
+        }
       }
     }
 
     loadSettings();
+
+    // Listen for updates from other tabs or background sync: only accept if newer and user not typing
+    const handleUpdate = (e: any) => {
+      if (isDirtyRef.current) return;
+      if (e?.detail) {
+        const incomingTime = e.detail.updatedAt || 0;
+        const currentTime = settingsRef.current?.updatedAt || 0;
+        if (incomingTime >= currentTime) {
+          setSettings(e.detail);
+          settingsRef.current = e.detail;
+        }
+      }
+    };
+    window.addEventListener(EVENT_STORE_SETTINGS_UPDATED, handleUpdate);
+    return () => window.removeEventListener(EVENT_STORE_SETTINGS_UPDATED, handleUpdate);
   }, []);
+
+  const updateSettingField = <K extends keyof StoreSettings>(field: K, value: StoreSettings[K]) => {
+    isDirtyRef.current = true;
+    setSettings(prev => ({ ...prev, [field]: value }));
+  };
 
   const seasonLabels: Record<string, string> = {
     winter: 'أقمشة شتوية ❄️',
@@ -72,6 +145,7 @@ export default function StoreSettingsPage() {
   };
 
   const moveSeason = (index: number, direction: 'up' | 'down') => {
+    isDirtyRef.current = true;
     const currentOrder = [...(settings.seasonsOrder || ['winter', 'summer', 'spring'])];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= currentOrder.length) return;
@@ -85,15 +159,23 @@ export default function StoreSettingsPage() {
     e.preventDefault();
     setSaving(true);
     setSaveSuccess(false);
+    setSaveError(null);
 
     try {
+      const now = Date.now();
+      lastSavedTimeRef.current = now;
+      const toSave = { ...settings, updatedAt: now };
+
       // Multi-layer persistence across Supabase, LocalStorage, and Backend
-      const updated = await persistStoreSettings(settings);
+      const updated = await persistStoreSettings(toSave);
       setSettings(updated);
+      settingsRef.current = updated;
+      isDirtyRef.current = false;
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 4000);
-    } catch (err) {
+      setTimeout(() => setSaveSuccess(false), 5000);
+    } catch (err: any) {
       console.error('Failed to save settings', err);
+      setSaveError('حدث خطأ أثناء حفظ الإعدادات، يرجى المحاولة مرة أخرى.');
     } finally {
       setSaving(false);
     }
@@ -172,6 +254,27 @@ export default function StoreSettingsPage() {
         </motion.div>
       )}
 
+      {/* Error Notification */}
+      {saveError && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-900 flex items-center justify-between gap-3 shadow-xs"
+        >
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+            <p className="text-xs font-bold">{saveError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveError(null)}
+            className="text-xs font-bold text-rose-700 hover:text-rose-900 underline cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </motion.div>
+      )}
+
       {loading ? (
         <div className="bg-white rounded-3xl p-12 text-center border border-[#C7B895]/30">
           <RefreshCw className="w-8 h-8 text-[#1D3A30] animate-spin mx-auto mb-3" />
@@ -206,7 +309,7 @@ export default function StoreSettingsPage() {
                     type="text"
                     required
                     value={settings.whatsappNumber}
-                    onChange={(e) => setSettings({ ...settings, whatsappNumber: e.target.value })}
+                    onChange={(e) => updateSettingField('whatsappNumber', e.target.value)}
                     placeholder="مثال: 38244795"
                     className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-2 focus:ring-[#1D3A30] outline-none text-sm font-bold font-mono text-[#1D3A30]"
                     dir="ltr"
@@ -214,7 +317,7 @@ export default function StoreSettingsPage() {
                   <Phone className="w-4 h-4 text-[#C7B895] absolute right-3 top-3" />
                 </div>
                 <p className="text-[10px] text-[#1D3A30]/60 mt-1">
-                  الرقم المعتمد حالياً: <span className="font-mono font-bold text-[#1D3A30]">38244795</span>
+                  الرقم المعتمد حالياً: <span className="font-mono font-bold text-[#1D3A30]">{settings.whatsappNumber || '38244795'}</span>
                 </p>
               </div>
 
@@ -268,7 +371,7 @@ export default function StoreSettingsPage() {
                   type="text"
                   required
                   value={settings.storeName}
-                  onChange={(e) => setSettings({ ...settings, storeName: e.target.value })}
+                  onChange={(e) => updateSettingField('storeName', e.target.value)}
                   placeholder="نَسْجَة"
                   className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30] font-bold"
                 />
@@ -281,7 +384,7 @@ export default function StoreSettingsPage() {
                 <input
                   type="text"
                   value={settings.storeTagline}
-                  onChange={(e) => setSettings({ ...settings, storeTagline: e.target.value })}
+                  onChange={(e) => updateSettingField('storeTagline', e.target.value)}
                   placeholder="أقمشة رجالية فاخرة ومختارة بعناية"
                   className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
                 />
@@ -298,7 +401,7 @@ export default function StoreSettingsPage() {
                   <input
                     type="checkbox"
                     checked={settings.headerVisible}
-                    onChange={(e) => setSettings({ ...settings, headerVisible: e.target.checked })}
+                    onChange={(e) => updateSettingField('headerVisible', e.target.checked)}
                     className="w-4 h-4 accent-[#1D3A30] rounded cursor-pointer"
                   />
                   <span>إظهار شريط الإعلان</span>
@@ -307,7 +410,7 @@ export default function StoreSettingsPage() {
               <input
                 type="text"
                 value={settings.announcementText}
-                onChange={(e) => setSettings({ ...settings, announcementText: e.target.value })}
+                onChange={(e) => updateSettingField('announcementText', e.target.value)}
                 placeholder="أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة • متوفرة بالقطعة وطاقة القماش"
                 className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
               />
@@ -322,7 +425,7 @@ export default function StoreSettingsPage() {
                 <input
                   type="text"
                   value={settings.instagramHandle}
-                  onChange={(e) => setSettings({ ...settings, instagramHandle: e.target.value })}
+                  onChange={(e) => updateSettingField('instagramHandle', e.target.value)}
                   placeholder="nasjah.bh"
                   className="w-full pl-3 pr-10 py-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs font-mono text-[#1D3A30]"
                   dir="ltr"
@@ -356,7 +459,7 @@ export default function StoreSettingsPage() {
                 </label>
                 <select
                   value={settings.defaultSeason}
-                  onChange={(e) => setSettings({ ...settings, defaultSeason: e.target.value as any })}
+                  onChange={(e) => updateSettingField('defaultSeason', e.target.value as any)}
                   className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs font-bold text-[#1D3A30] bg-white cursor-pointer"
                 >
                   <option value="all">جميع الأقمشة (الافتراضي)</option>
@@ -381,7 +484,7 @@ export default function StoreSettingsPage() {
                     min="1"
                     max="10"
                     value={settings.defaultThobeMeters}
-                    onChange={(e) => setSettings({ ...settings, defaultThobeMeters: parseFloat(e.target.value) || 3.5 })}
+                    onChange={(e) => updateSettingField('defaultThobeMeters', parseFloat(e.target.value) || 3.5)}
                     className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs font-bold font-mono text-[#1D3A30]"
                   />
                   <span className="text-xs font-bold text-[#1D3A30]/70 flex-shrink-0">متر</span>
@@ -444,7 +547,7 @@ export default function StoreSettingsPage() {
                 <input
                   type="checkbox"
                   checked={settings.hideOutOfStock}
-                  onChange={(e) => setSettings({ ...settings, hideOutOfStock: e.target.checked })}
+                  onChange={(e) => updateSettingField('hideOutOfStock', e.target.checked)}
                   className="w-4 h-4 accent-[#1D3A30] rounded cursor-pointer"
                 />
                 <div>
@@ -460,26 +563,48 @@ export default function StoreSettingsPage() {
           {/* ========================================================================= */}
           {/* SAVE BUTTON BAR                                                           */}
           {/* ========================================================================= */}
-          <div className="sticky bottom-4 z-30 bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-[#C7B895]/40 shadow-lg flex items-center justify-between gap-4">
+          <div className="sticky bottom-4 z-30 bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-[#C7B895]/40 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-[#1D3A30]">
-                التعديلات تُطبق فوراً على متجر الزبائن
-              </span>
+              {saveSuccess ? (
+                <div className="flex items-center gap-2 text-xs font-black text-emerald-800 bg-emerald-100 px-3.5 py-1.5 rounded-xl border border-emerald-300 shadow-xs animate-pulse">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>تم حفظ الإعدادات وتحديث المتجر فورياً في السحابة!</span>
+                </div>
+              ) : saveError ? (
+                <div className="flex items-center gap-2 text-xs font-black text-rose-800 bg-rose-100 px-3.5 py-1.5 rounded-xl border border-rose-300 shadow-xs">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <span>{saveError}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs font-bold text-[#1D3A30]">
+                    التعديلات تُطبق فوراً على متجر الزبائن السحابي
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="submit"
                 disabled={saving}
-                className="btn-primary-atelier flex items-center gap-2 px-6 py-2.5 text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-70 cursor-pointer"
+                className={`flex items-center justify-center gap-2 px-6 py-2.5 text-xs font-black rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-70 cursor-pointer w-full sm:w-auto ${
+                  saveSuccess 
+                    ? 'bg-emerald-700 hover:bg-emerald-800 text-white' 
+                    : 'btn-primary-atelier'
+                }`}
               >
                 {saving ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-[#E8D5A8]" />
+                ) : saveSuccess ? (
+                  <CheckCircle2 className="w-4 h-4 text-white" />
                 ) : (
                   <Save className="w-4 h-4 text-[#E8D5A8]" />
                 )}
-                <span>{saving ? 'جارِ الحفظ...' : 'حفظ إعدادات المتجر'}</span>
+                <span>
+                  {saving ? 'جارِ الحفظ السحابي...' : saveSuccess ? 'تم الحفظ بنجاح ✓' : 'حفظ إعدادات المتجر'}
+                </span>
               </button>
             </div>
           </div>

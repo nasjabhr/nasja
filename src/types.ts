@@ -22,6 +22,7 @@ export interface StoreSettings {
   defaultSeason: 'all' | 'summer' | 'winter' | 'spring';
   headerVisible: boolean;
   seasonsOrder: ('winter' | 'summer' | 'spring')[];
+  updatedAt?: number;
 }
 
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
@@ -35,6 +36,7 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   defaultSeason: "all",
   headerVisible: true,
   seasonsOrder: ['winter', 'summer', 'spring'],
+  updatedAt: 0,
 };
 
 export type OrderStatus = 'قيد التجهيز' | 'جاهز للتسليم' | 'تم التسليم' | 'ملغي';

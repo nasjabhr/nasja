@@ -128,30 +128,90 @@ export default function Store() {
       try {
         let fabricsFound = false;
 
-        // 1. Fetch store settings directly with anti-cache
+        // 1. Direct Supabase Cloud load (primary source on Vercel & static deployments)
+        let resolvedSettings: StoreSettings | null = null;
+        if (supabase) {
+          try {
+            // First check __store_settings__ in inventory table (guaranteed public read)
+            const { data: invSettingsRow } = await supabase
+              .from('inventory')
+              .select('image_url')
+              .eq('id', '__store_settings__')
+              .maybeSingle();
+
+            if (invSettingsRow?.image_url) {
+              try {
+                const parsed = JSON.parse(invSettingsRow.image_url);
+                if (parsed && typeof parsed === 'object') {
+                  resolvedSettings = {
+                    ...DEFAULT_STORE_SETTINGS,
+                    ...parsed,
+                    seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
+                      ? parsed.seasonsOrder
+                      : ['winter', 'summer', 'spring']
+                  };
+                }
+              } catch {}
+            }
+
+            // Also check dedicated store_settings table if it exists
+            const { data: sbSettings } = await supabase
+              .from('store_settings')
+              .select('settings')
+              .order('updated_at', { ascending: false })
+              .limit(1);
+
+            if (sbSettings && sbSettings.length > 0 && sbSettings[0]?.settings) {
+              resolvedSettings = {
+                ...DEFAULT_STORE_SETTINGS,
+                ...(resolvedSettings || {}),
+                ...sbSettings[0].settings
+              };
+            }
+          } catch {}
+        }
+
+        // 1b. Fetch store settings from server API (when running with Express backend)
         try {
           const sRes = await fetch(`/api/store-settings?t=${Date.now()}`);
           if (sRes.ok) {
-            const sData = await sRes.json();
-            if (sData.settings) {
-              const freshSettings: StoreSettings = {
-                ...DEFAULT_STORE_SETTINGS,
-                ...sData.settings,
-                seasonsOrder: sData.settings.seasonsOrder && sData.settings.seasonsOrder.length > 0
-                  ? sData.settings.seasonsOrder
-                  : ['winter', 'summer', 'spring']
-              };
-              setStoreSettings(freshSettings);
-              try {
-                localStorage.setItem('nasjah_store_settings', JSON.stringify(freshSettings));
-              } catch {}
-              if (freshSettings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(freshSettings.defaultSeason)) {
-                setSelectedSeason(freshSettings.defaultSeason as SeasonFilter);
+            const contentType = sRes.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const sData = await sRes.json();
+              if (sData?.settings) {
+                const serverTime = sData.settings.updatedAt || 0;
+                const currentCloudTime = resolvedSettings?.updatedAt || 0;
+                if (!resolvedSettings || serverTime >= currentCloudTime) {
+                  resolvedSettings = {
+                    ...DEFAULT_STORE_SETTINGS,
+                    ...(resolvedSettings || {}),
+                    ...sData.settings,
+                    seasonsOrder: sData.settings.seasonsOrder && sData.settings.seasonsOrder.length > 0
+                      ? sData.settings.seasonsOrder
+                      : ['winter', 'summer', 'spring']
+                  };
+                }
               }
             }
           }
-        } catch (sErr) {
-          console.warn('Store settings direct fetch note:', sErr);
+        } catch {}
+
+        // 1c. Reconcile with local cached settings
+        const localCached = getLocalStoreSettings();
+        const localTime = localCached?.updatedAt || 0;
+        const cloudTime = resolvedSettings?.updatedAt || 0;
+
+        const finalSettings: StoreSettings = (localCached && localTime > cloudTime) 
+          ? localCached 
+          : (resolvedSettings || localCached || DEFAULT_STORE_SETTINGS);
+
+        setStoreSettings(finalSettings);
+        try {
+          localStorage.setItem('nasjah_store_settings', JSON.stringify(finalSettings));
+        } catch {}
+
+        if (finalSettings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(finalSettings.defaultSeason)) {
+          setSelectedSeason(finalSettings.defaultSeason as SeasonFilter);
         }
 
         // 2. Fetch directly from Supabase Cloud (works seamlessly on Vercel and all frontends)
@@ -163,7 +223,7 @@ export default function Store() {
 
             if (!sbError && sbData && sbData.length > 0) {
               const mapped: PublicFabric[] = sbData
-                .filter((item: any) => !isPackagingItem(item))
+                .filter((item: any) => !isPackagingItem(item) && item.id !== '__store_settings__' && item.category !== '__system__')
                 .map((item: any) => {
                   const qty = Number(item.quantity || 0);
                   return {

@@ -10,7 +10,7 @@ const STORAGE_KEY_LAST_FAIL = 'nasjah_sec_last_fail';
 // Authorized emails (Nasjah Founders)
 export const AUTHORIZED_EMAILS: string[] = [
   'nasjahbh@gmail.com',
-  // Can easily be extended with partner's email
+  'nasjabhr@gmail.com',
 ];
 
 export const MAX_ALLOWED_ATTEMPTS = 3;

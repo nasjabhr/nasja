@@ -19,6 +19,7 @@ export interface StoreSettings {
   defaultSeason: 'all' | 'summer' | 'winter' | 'spring';
   headerVisible: boolean;
   seasonsOrder: ('winter' | 'summer' | 'spring')[];
+  updatedAt?: number;
 }
 
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
@@ -32,6 +33,7 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   defaultSeason: "all",
   headerVisible: true,
   seasonsOrder: ['winter', 'summer', 'spring'],
+  updatedAt: 0,
 };
 
 export interface UserStoreData {
@@ -319,7 +321,8 @@ export function saveStoreSettings(settings: Partial<StoreSettings>): StoreSettin
   const current = getStoreSettings();
   const merged: StoreSettings = {
     ...current,
-    ...settings
+    ...settings,
+    updatedAt: settings.updatedAt || Date.now()
   };
 
   // 1. Write to dedicated store_settings.json

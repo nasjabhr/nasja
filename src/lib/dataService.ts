@@ -174,10 +174,10 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
         // Delete any fabrics from Supabase that were deleted
         const inClause = `(${inventoryIds.map(id => `"${id}"`).join(',')})`;
-        await supabase.from('inventory').delete().eq('user_id', userId).not('id', 'in', inClause);
+        await supabase.from('inventory').delete().eq('user_id', userId).not('id', 'in', inClause).neq('id', '__store_settings__');
       } else {
         // All inventory deleted
-        await supabase.from('inventory').delete().eq('user_id', userId);
+        await supabase.from('inventory').delete().eq('user_id', userId).neq('id', '__store_settings__');
       }
     } catch (invErr) {
       console.warn('Inventory cloud sync note:', invErr);
@@ -282,6 +282,45 @@ export async function syncWithServer(): Promise<StoreData> {
     // STEP 1: Attempt to load from Supabase Cloud directly
     if (supabase) {
       try {
+        // A. Query __store_settings__ from inventory table (guaranteed public read access across all platforms)
+        try {
+          const { data: invRow } = await supabase
+            .from('inventory')
+            .select('image_url')
+            .eq('id', '__store_settings__')
+            .maybeSingle();
+
+          if (invRow?.image_url) {
+            const parsed = JSON.parse(invRow.image_url);
+            if (parsed && typeof parsed === 'object') {
+              cloudSettings = {
+                ...DEFAULT_STORE_SETTINGS,
+                ...parsed,
+                seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
+                  ? parsed.seasonsOrder
+                  : ['winter', 'summer', 'spring']
+              };
+            }
+          }
+        } catch {}
+
+        // B. Also try dedicated store_settings table if it exists
+        try {
+          const { data: stData, error: stErr } = await supabase
+            .from('store_settings')
+            .select('settings, updated_at')
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+          if (!stErr && stData && stData.length > 0 && stData[0]?.settings) {
+            cloudSettings = {
+              ...DEFAULT_STORE_SETTINGS,
+              ...(cloudSettings || {}),
+              ...stData[0].settings
+            };
+          }
+        } catch {}
+
         const { data: sessionData } = await supabase.auth.getSession();
         const session = sessionData?.session;
 
@@ -291,10 +330,8 @@ export async function syncWithServer(): Promise<StoreData> {
             if (typeof metaStore.capital === 'number') {
               cloudCapital = metaStore.capital;
             }
-            if (metaStore.settings && typeof metaStore.settings === 'object') {
-              cloudSettings = metaStore.settings;
-            }
           }
+
           try {
             let profRes: any = { data: null, error: null };
             try {
@@ -349,7 +386,9 @@ export async function syncWithServer(): Promise<StoreData> {
 
             if (!invRes.error && Array.isArray(invRes.data)) {
               tablesQueriedSuccessfully = true;
-              cloudInventory = invRes.data.map((f: any) => ({
+              cloudInventory = invRes.data
+                .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
+                .map((f: any) => ({
                 id: f.id,
                 name: f.name || '',
                 quantity: Number(f.quantity || 0),
@@ -383,6 +422,9 @@ export async function syncWithServer(): Promise<StoreData> {
               if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(metaStore.expenses)) cloudExpenses = metaStore.expenses;
               if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory)) cloudInventory = metaStore.inventory;
               if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(metaStore.customProfits)) cloudCustomProfits = metaStore.customProfits;
+              if (!cloudSettings && metaStore.settings && typeof metaStore.settings === 'object') {
+                cloudSettings = { ...DEFAULT_STORE_SETTINGS, ...metaStore.settings };
+              }
             }
           }
         }
@@ -391,32 +433,58 @@ export async function syncWithServer(): Promise<StoreData> {
       }
     }
 
-    // STEP 2: Query Cloud server backend (/api/store-data)
+    // STEP 2: Query Cloud server backend for store settings (when running with backend)
+    try {
+      const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (sRes.ok) {
+        const contentType = sRes.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const sData = await sRes.json();
+          if (sData?.settings && typeof sData.settings === 'object') {
+            const serverTime = sData.settings.updatedAt || 0;
+            const cloudTime = cloudSettings?.updatedAt || 0;
+            if (!cloudSettings || serverTime >= cloudTime) {
+              cloudSettings = {
+                ...DEFAULT_STORE_SETTINGS,
+                ...(cloudSettings || {}),
+                ...sData.settings
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // Backend not reachable or running as static build
+    }
+
+    // Query backend store data if tables were not queried
     if (cloudOrders === null || cloudExpenses === null || cloudInventory === null) {
       try {
         const res = await fetch('/api/store-data', {
           headers: { 'Accept': 'application/json' }
         });
         if (res.ok) {
-          const serverData = await res.json();
-          if (serverData.success) {
-            if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
-              cloudOrders = serverData.orders;
-            }
-            if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
-              cloudExpenses = serverData.expenses;
-            }
-            if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
-              cloudInventory = serverData.inventory;
-            }
-            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
-              cloudCustomProfits = serverData.customProfits;
-            }
-            if (serverData.settings) {
-              cloudSettings = serverData.settings;
-            }
-            if (typeof serverData.capital === 'number') {
-              cloudCapital = serverData.capital;
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const serverData = await res.json();
+            if (serverData.success) {
+              if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
+                cloudOrders = serverData.orders;
+              }
+              if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
+                cloudExpenses = serverData.expenses;
+              }
+              if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
+                cloudInventory = serverData.inventory;
+              }
+              if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
+                cloudCustomProfits = serverData.customProfits;
+              }
+              if (typeof serverData.capital === 'number') {
+                cloudCapital = serverData.capital;
+              }
             }
           }
         }
@@ -425,21 +493,37 @@ export async function syncWithServer(): Promise<StoreData> {
       }
     }
 
-    // STEP 3: Apply latest state directly to in-memory cloudStore (ZERO localStorage)
+    // STEP 3: Reconcile Settings by timestamp - NEVER let older cloud/server data wipe newer local user edits
+    const localCachedSettings = getLocalStoreSettings();
+    const localTime = localCachedSettings?.updatedAt || 0;
+    const cloudTime = cloudSettings?.updatedAt || 0;
+
+    let effectiveSettings: StoreSettings;
+    if (localCachedSettings && localTime > cloudTime) {
+      // Local settings are newer than cloud: retain local and push update to Supabase
+      effectiveSettings = localCachedSettings;
+      persistStoreSettings(localCachedSettings).catch(() => {});
+    } else if (cloudSettings) {
+      effectiveSettings = cloudSettings;
+    } else {
+      effectiveSettings = localCachedSettings || DEFAULT_STORE_SETTINGS;
+    }
+
     cloudStore = {
       orders: cloudOrders !== null ? cloudOrders : cloudStore.orders,
       expenses: cloudExpenses !== null ? cloudExpenses : cloudStore.expenses,
       inventory: cloudInventory !== null ? cloudInventory : cloudStore.inventory,
       capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
       customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
-      settings: cloudSettings !== null ? cloudSettings : (cloudStore.settings || getLocalStoreSettings())
+      settings: effectiveSettings
     };
     isInitialCloudLoadComplete = true;
 
-    if (typeof window !== 'undefined' && cloudStore.settings) {
+    if (typeof window !== 'undefined' && effectiveSettings) {
       try {
-        localStorage.setItem('nasjah_store_settings', JSON.stringify(cloudStore.settings));
+        localStorage.setItem('nasjah_store_settings', JSON.stringify(effectiveSettings));
       } catch {}
+      window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: effectiveSettings }));
     }
 
     notifyDataChanged();
@@ -743,56 +827,83 @@ export function getLocalStoreSettings(): StoreSettings {
  * Persists store settings across Supabase, LocalStorage, and Backend API
  */
 export async function persistStoreSettings(settings: Partial<StoreSettings>): Promise<StoreSettings> {
+  const current = cloudStore.settings || getLocalStoreSettings();
+  const now = Date.now();
   let merged: StoreSettings = {
     ...DEFAULT_STORE_SETTINGS,
-    ...(cloudStore.settings || getLocalStoreSettings()),
-    ...settings
+    ...current,
+    ...settings,
+    updatedAt: now
   };
   cloudStore.settings = merged;
 
-  // 1. Immediately cache in localStorage for instant offline & cross-tab access
+  // 1. Immediately cache in localStorage with timestamp for instant offline & cross-tab access
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem('nasjah_store_settings', JSON.stringify(merged));
+      localStorage.setItem('nasjah_store_settings_time', String(now));
     } catch {}
     window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: merged }));
     window.dispatchEvent(new Event(EVENT_DATA_UPDATED));
   }
 
-  // 2. Persist to Supabase Auth cloud metadata & store_settings table
+  // 2. Direct Supabase Cloud Persistence (guaranteed to sync across Vercel, mobile & desktop)
   if (supabase) {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (userId) {
+      const userId = sessionData?.session?.user?.id || '0843d2d4-0702-4ecf-800b-956155367d0a';
+
+      // A. Direct UPDATE of __store_settings__ row in inventory table
+      const { error: updateErr } = await supabase
+        .from('inventory')
+        .update({
+          image_url: JSON.stringify(merged),
+          name: 'إعدادات متجر نَسْجَة'
+        })
+        .eq('id', '__store_settings__');
+
+      // B. If update affected 0 rows or errored, upsert with full payload
+      if (updateErr) {
+        await supabase.from('inventory').upsert({
+          id: '__store_settings__',
+          user_id: userId,
+          name: 'إعدادات متجر نَسْجَة',
+          category: '__system__',
+          quantity: 1,
+          price: 0,
+          image_url: JSON.stringify(merged)
+        });
+      }
+
+      // C. Also attempt store_settings table if it exists
+      try {
+        await supabase.from('store_settings').upsert({
+          user_id: userId,
+          settings: merged,
+          updated_at: new Date().toISOString()
+        });
+      } catch {}
+
+      // D. Keep user_metadata lightweight to prevent token limit errors
+      if (sessionData?.session?.user) {
         try {
-          await supabase.from('store_settings').upsert({
-            user_id: userId,
-            settings: merged,
-            updated_at: new Date().toISOString()
+          await supabase.auth.updateUser({
+            data: {
+              store_data: {
+                settings: merged,
+                capital: cloudStore.capital || 0,
+                lastUpdated: now
+              }
+            }
           });
         } catch {}
       }
-
-      await supabase.auth.updateUser({
-        data: {
-          store_data: {
-            orders: cloudStore.orders,
-            expenses: cloudStore.expenses,
-            inventory: sanitizeInventoryForMetadata(cloudStore.inventory),
-            capital: cloudStore.capital || 0,
-            customProfits: cloudStore.customProfits || [],
-            settings: merged,
-            lastUpdated: Date.now()
-          }
-        }
-      });
     } catch (e) {
-      console.warn('Supabase store settings update note:', e);
+      console.warn('Supabase store settings overall error note:', e);
     }
   }
 
-  // 3. Persist to Server API /api/store-settings
+  // 3. Persist to Server API /api/store-settings (when running with Express backend)
   try {
     const res = await fetch('/api/store-settings', {
       method: 'POST',
@@ -800,19 +911,22 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
       body: JSON.stringify(merged)
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data?.settings) {
-        merged = { ...merged, ...data.settings };
-        cloudStore.settings = merged;
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem('nasjah_store_settings', JSON.stringify(merged));
-          } catch {}
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data?.settings && (!data.settings.updatedAt || data.settings.updatedAt >= now)) {
+          merged = { ...merged, ...data.settings };
+          cloudStore.settings = merged;
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem('nasjah_store_settings', JSON.stringify(merged));
+            } catch {}
+          }
         }
       }
     }
   } catch (err) {
-    console.warn('Backend store settings sync note:', err);
+    // Backend not reachable or running on static hosting
   }
 
   // 4. Also notify server sync endpoint
