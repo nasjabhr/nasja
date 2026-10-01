@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
-import { CRITICAL_FABRIC_THRESHOLD, StoreSettings, DEFAULT_STORE_SETTINGS } from '../types';
+import { CRITICAL_FABRIC_THRESHOLD, StoreSettings, DEFAULT_STORE_SETTINGS, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
 import { supabase } from '../lib/supabase';
 import { getLocalStoreSettings, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
@@ -102,14 +102,14 @@ export default function Store() {
   const [tailorChoice, setTailorChoice] = useState<string>('cut_classic');
   const [customMeters, setCustomMeters] = useState<number>(3.5);
   const [deliveryType, setDeliveryType] = useState<'قدوم شخصي' | 'توصيل'>('قدوم شخصي');
-  const [deliveryZone, setDeliveryZone] = useState<'قريب' | 'متوسط' | 'بعيد'>('قريب');
+  const [selectedGovernorate, setSelectedGovernorate] = useState<BahrainGovernorateName>('المحافظة الشمالية');
+  const [selectedArea, setSelectedArea] = useState<string>('سار');
+  const [addressDetails, setAddressDetails] = useState<string>('');
 
   const deliveryFee = useMemo(() => {
     if (deliveryType === 'قدوم شخصي') return 0;
-    if (deliveryZone === 'بعيد') return 2;
-    if (deliveryZone === 'متوسط') return 1;
-    return 0; // قريب مجاني
-  }, [deliveryType, deliveryZone]);
+    return BAHRAIN_GOVERNORATES[selectedGovernorate]?.fee ?? 0.50;
+  }, [deliveryType, selectedGovernorate]);
 
   // Contact WhatsApp Number (Default 38244795)
   const rawNumber = storeSettings.whatsappNumber || '38244795';
@@ -403,9 +403,16 @@ export default function Store() {
     const defaultMeters = meters !== undefined ? meters : activeMeters;
     const formattedMetersStr = formatMeters(defaultMeters);
     const defaultNote = note || (tailorChoice === 'custom' ? `مخصص (${formattedMetersStr} متر)` : FABRIC_LENGTH_OPTIONS.find(o => o.id === tailorChoice)?.label || 'قصة قياسية معتادة');
-    const deliveryNote = deliveryType === 'توصيل'
-      ? `توصيل (${deliveryZone === 'قريب' ? 'قريب - مجاني' : deliveryZone === 'متوسط' ? 'متوسط - رسوم 1 د.ب' : 'بعيد - رسوم 2 د.ب'})`
-      : 'قدوم شخصي (استلام من المحل)';
+    let deliveryNote = 'قدوم شخصي (استلام من المحل)';
+    if (deliveryType === 'توصيل') {
+      const govInfo = BAHRAIN_GOVERNORATES[selectedGovernorate];
+      const govName = govInfo ? govInfo.name : selectedGovernorate;
+      const areaPart = selectedArea ? ` - منطقة ${selectedArea}` : '';
+      deliveryNote = `توصيل (${govName}${areaPart} - رسوم ${deliveryFee.toFixed(2)} د.ب)`;
+      if (addressDetails.trim()) {
+        deliveryNote += `\n• تفاصيل العنوان: ${addressDetails.trim()}`;
+      }
+    }
     
     let msg = `السلام عليكم ورحمة الله، متجر نَسْجَة للأقمشة الرجالية\n`;
     if (fabric) {
@@ -1137,50 +1144,72 @@ export default function Store() {
                     <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="pt-2 border-t border-[#C7B895]/30 space-y-2"
+                      className="pt-2 border-t border-[#C7B895]/30 space-y-3"
                     >
-                      <span className="text-[10px] font-bold text-[#1D3A30]/80 block">
-                        نطاق التوصيل:
-                      </span>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setDeliveryZone('قريب')}
-                          className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                            deliveryZone === 'قريب'
-                              ? 'bg-emerald-800 text-white border-emerald-800 shadow-xs'
-                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-emerald-50'
-                          }`}
-                        >
-                          <span className="text-[11px] font-black">قريب</span>
-                          <span className="text-[9px] font-bold opacity-90">مجاني</span>
-                        </button>
+                      <div>
+                        <span className="text-[11px] font-bold text-[#1D3A30] block mb-1.5">
+                          اختر المحافظة:
+                        </span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          {(Object.keys(BAHRAIN_GOVERNORATES) as BahrainGovernorateName[]).map((govName) => {
+                            const gov = BAHRAIN_GOVERNORATES[govName];
+                            const isSelected = selectedGovernorate === govName;
+                            return (
+                              <button
+                                key={govName}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedGovernorate(govName);
+                                  if (gov.areas.length > 0) {
+                                    setSelectedArea(gov.areas[0]);
+                                  }
+                                }}
+                                className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5 active:scale-98 ${
+                                  isSelected
+                                    ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                                    : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
+                                }`}
+                              >
+                                <span className="text-[11px] font-black">{gov.shortName}</span>
+                                <span className="text-[9px] font-bold opacity-90">
+                                  {gov.fee === 0.5 ? '500 فلس' : gov.fee === 1 ? '1.00 د.ب' : '2.00 د.ب'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setDeliveryZone('متوسط')}
-                          className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                            deliveryZone === 'متوسط'
-                              ? 'bg-[#A99872] text-[#FAF7F0] border-[#A99872] shadow-xs'
-                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
-                          }`}
+                      {/* Cascading Areas Dropdown */}
+                      <div>
+                        <span className="text-[11px] font-bold text-[#1D3A30] block mb-1">
+                          اختر منطقة التوصيل ({BAHRAIN_GOVERNORATES[selectedGovernorate]?.name}):
+                        </span>
+                        <select
+                          value={selectedArea}
+                          onChange={(e) => setSelectedArea(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold"
                         >
-                          <span className="text-[11px] font-black">متوسط</span>
-                          <span className="text-[9px] font-bold opacity-90">+1 د.ب</span>
-                        </button>
+                          {BAHRAIN_GOVERNORATES[selectedGovernorate]?.areas.map((area) => (
+                            <option key={area} value={area}>
+                              {area}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setDeliveryZone('بعيد')}
-                          className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5 ${
-                            deliveryZone === 'بعيد'
-                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
-                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
-                          }`}
-                        >
-                          <span className="text-[11px] font-black">بعيد</span>
-                          <span className="text-[9px] font-bold opacity-90">+2 د.ب</span>
-                        </button>
+                      {/* Additional Address Details */}
+                      <div>
+                        <span className="text-[10px] text-[#1D3A30]/70 font-medium block mb-1">
+                          تفاصيل العنوان (المجمع / الشارع / المنزل - اختياري):
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="مثال: مجمع 1234، طريق 56، منزل 78"
+                          value={addressDetails}
+                          onChange={(e) => setAddressDetails(e.target.value)}
+                          className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30]"
+                        />
                       </div>
                     </motion.div>
                   )}
@@ -1195,7 +1224,7 @@ export default function Store() {
                 </div>
                 {deliveryType === 'توصيل' && deliveryFee > 0 && (
                   <div className="flex items-center justify-between text-xs text-[#E8D5A8]">
-                    <span>رسوم التوصيل ({deliveryZone}):</span>
+                    <span>رسوم التوصيل ({BAHRAIN_GOVERNORATES[selectedGovernorate]?.shortName} - {selectedArea}):</span>
                     <span className="font-mono">+{deliveryFee.toFixed(2)} د.ب</span>
                   </div>
                 )}

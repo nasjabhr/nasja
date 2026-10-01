@@ -49,7 +49,134 @@ export type OrderStatus = 'قيد التجهيز' | 'جاهز للتسليم' | 
 export type PaymentStatus = 'تم الدفع' | 'قيد الدفع';
 export type PaymentMethod = 'بنفت بي' | 'نقداً' | 'بطاقة دفع' | 'أخرى';
 export type DeliveryType = 'قدوم شخصي' | 'توصيل';
-export type DeliveryZone = 'قريب' | 'متوسط' | 'بعيد';
+
+export type BahrainGovernorateName = 
+  | 'المحافظة الشمالية'
+  | 'محافظة العاصمة'
+  | 'المحافظة الجنوبية'
+  | 'محافظة المحرق';
+
+export interface BahrainGovernorateInfo {
+  name: BahrainGovernorateName;
+  shortName: string;
+  fee: number;
+  feeLabel: string;
+  areas: string[];
+}
+
+export const BAHRAIN_GOVERNORATES: Record<BahrainGovernorateName, BahrainGovernorateInfo> = {
+  'المحافظة الشمالية': {
+    name: 'المحافظة الشمالية',
+    shortName: 'الشمالية',
+    fee: 0.50,
+    feeLabel: '500 فلس (0.50 د.ب)',
+    areas: [
+      'سار',
+      'الجنبية',
+      'البديع',
+      'باربار',
+      'الدراز',
+      'بني جمرة',
+      'المرخ',
+      'الشاخورة',
+      'أبو صيبع',
+      'كرانة',
+      'مقابة',
+      'مدينة حمد',
+      'دمستان',
+      'كرزكان',
+      'المالكية',
+      'صدد',
+      'شهركان',
+      'دار كليب',
+      'بوري',
+      'سلماباد',
+      'السهلة',
+      'القدم',
+      'جبلة حبشي',
+      'عذاري',
+      'طشان',
+      'المصلى',
+      'الحجر'
+    ]
+  },
+  'محافظة العاصمة': {
+    name: 'محافظة العاصمة',
+    shortName: 'العاصمة',
+    fee: 1.00,
+    feeLabel: 'دينار واحد (1.00 د.ب)',
+    areas: [
+      'المنامة',
+      'السلمانية',
+      'الجفير',
+      'أم الحصم',
+      'العدلية',
+      'الماحوز',
+      'الزنج',
+      'السقية',
+      'السنابس',
+      'الديه',
+      'كرباباد',
+      'ضاحية السيف',
+      'توبلي',
+      'البلاد القديم',
+      'سترة',
+      'النبيه صالح',
+      'المعامير',
+      'العكر',
+      'سند',
+      'النويدرات',
+      'الحورة',
+      'القضيبية',
+      'رأس رمان'
+    ]
+  },
+  'المحافظة الجنوبية': {
+    name: 'المحافظة الجنوبية',
+    shortName: 'الجنوبية',
+    fee: 1.00,
+    feeLabel: 'دينار واحد (1.00 د.ب)',
+    areas: [
+      'الرفاع الشرقي',
+      'الرفاع الغربي',
+      'بوكوارة',
+      'الحجيات',
+      'البحير',
+      'وادي السيل',
+      'مدينة عيسى',
+      'مدينة زايد',
+      'عالي',
+      'الزلاق',
+      'سافرة',
+      'عسكر',
+      'جو',
+      'الدور',
+      'درة البحرين'
+    ]
+  },
+  'محافظة المحرق': {
+    name: 'محافظة المحرق',
+    shortName: 'المحرق',
+    fee: 2.00,
+    feeLabel: 'دينارين (2.00 د.ب)',
+    areas: [
+      'المحرق',
+      'البسيتين',
+      'عراد',
+      'الحد',
+      'قلالي',
+      'سماهيج',
+      'الدير',
+      'ديار المحرق',
+      'جزر أمواج',
+      'حالة بو ماهر',
+      'حالة النعيم',
+      'حالة السلطة'
+    ]
+  }
+};
+
+export type DeliveryZone = 'قريب' | 'متوسط' | 'بعيد' | BahrainGovernorateName;
 
 export interface Order {
   id: string;
@@ -64,6 +191,8 @@ export interface Order {
   deliveryMethod?: string;
   deliveryType?: DeliveryType | string;
   deliveryZone?: DeliveryZone | string;
+  governorate?: BahrainGovernorateName | string;
+  area?: string;
   deliveryFee?: number;
   notes?: string;
   createdAt: number; // timestamp in ms

@@ -8,7 +8,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { Fabric, Order, OrderStatus, PaymentMethod, PaymentStatus, DeliveryType, DeliveryZone, isOrderPaid } from '../types';
+import { Fabric, Order, OrderStatus, PaymentMethod, PaymentStatus, DeliveryType, DeliveryZone, isOrderPaid, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
 import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '../lib/dateUtils';
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
@@ -61,15 +61,18 @@ export default function Orders() {
     paymentStatus: 'تم الدفع' as PaymentStatus,
     paymentMethod: 'بنفت بي' as PaymentMethod,
     deliveryType: 'قدوم شخصي' as DeliveryType,
-    deliveryZone: 'قريب' as DeliveryZone,
+    governorate: 'المحافظة الشمالية' as BahrainGovernorateName,
+    area: 'سار',
+    deliveryZone: 'المحافظة الشمالية - سار' as DeliveryZone,
     deliveryFee: 0,
     datetimeStr: toDatetimeLocal(),
     notes: ''
   });
 
   const handleDeliveryTypeChange = (type: DeliveryType) => {
-    const currentZone = orderForm.deliveryZone || 'قريب';
-    const newFee = type === 'توصيل' ? (currentZone === 'بعيد' ? 2 : currentZone === 'متوسط' ? 1 : 0) : 0;
+    const gov = (orderForm.governorate as BahrainGovernorateName) || 'المحافظة الشمالية';
+    const govFee = BAHRAIN_GOVERNORATES[gov]?.fee ?? 0.50;
+    const newFee = type === 'توصيل' ? govFee : 0;
     const oldFee = orderForm.deliveryFee || 0;
     const currentTotal = parseFloat(orderForm.price) || 0;
     const basePrice = Math.max(0, currentTotal - oldFee);
@@ -79,12 +82,15 @@ export default function Orders() {
       ...prev,
       deliveryType: type,
       deliveryFee: newFee,
+      deliveryZone: type === 'توصيل' ? (`${prev.governorate} - ${prev.area}` as DeliveryZone) : ('قريب' as DeliveryZone),
       price: updatedTotal
     }));
   };
 
-  const handleDeliveryZoneChange = (zone: DeliveryZone) => {
-    const newFee = zone === 'بعيد' ? 2 : zone === 'متوسط' ? 1 : 0;
+  const handleGovernorateChange = (govName: BahrainGovernorateName) => {
+    const gov = BAHRAIN_GOVERNORATES[govName];
+    const newFee = gov?.fee ?? 0.50;
+    const defaultArea = gov?.areas[0] || 'سار';
     const oldFee = orderForm.deliveryFee || 0;
     const currentTotal = parseFloat(orderForm.price) || 0;
     const basePrice = Math.max(0, currentTotal - oldFee);
@@ -92,9 +98,19 @@ export default function Orders() {
 
     setOrderForm(prev => ({
       ...prev,
-      deliveryZone: zone,
+      governorate: govName,
+      area: defaultArea,
+      deliveryZone: `${govName} - ${defaultArea}` as DeliveryZone,
       deliveryFee: newFee,
       price: updatedTotal
+    }));
+  };
+
+  const handleAreaChange = (newArea: string) => {
+    setOrderForm(prev => ({
+      ...prev,
+      area: newArea,
+      deliveryZone: `${prev.governorate} - ${newArea}` as DeliveryZone
     }));
   };
 
@@ -140,7 +156,9 @@ export default function Orders() {
       paymentStatus: 'تم الدفع',
       paymentMethod: 'بنفت بي',
       deliveryType: 'قدوم شخصي',
-      deliveryZone: 'قريب',
+      governorate: 'المحافظة الشمالية',
+      area: 'سار',
+      deliveryZone: 'المحافظة الشمالية - سار',
       deliveryFee: 0,
       datetimeStr: toDatetimeLocal(),
       notes: ''
@@ -166,6 +184,13 @@ export default function Orders() {
       setCustomFabricMode(true);
     }
 
+    const initialGov = (order.governorate as BahrainGovernorateName) || 
+      (order.deliveryZone && order.deliveryZone.includes('محرق') ? 'محافظة المحرق' :
+       order.deliveryZone && order.deliveryZone.includes('عاصمة') ? 'محافظة العاصمة' :
+       order.deliveryZone && order.deliveryZone.includes('جنوبية') ? 'المحافظة الجنوبية' : 'المحافظة الشمالية');
+    const initialArea = order.area || 
+      (order.deliveryZone && order.deliveryZone.includes('-') ? order.deliveryZone.split('-')[1]?.trim() : (BAHRAIN_GOVERNORATES[initialGov]?.areas[0] || 'سار'));
+
     setOrderForm({
       customerName: order.customerName,
       phone: order.phone,
@@ -175,7 +200,9 @@ export default function Orders() {
       paymentStatus: (order.paymentStatus || 'تم الدفع') as PaymentStatus,
       paymentMethod: (order.paymentMethod as PaymentMethod) || 'بنفت بي',
       deliveryType: (order.deliveryType as DeliveryType) || 'قدوم شخصي',
-      deliveryZone: (order.deliveryZone as DeliveryZone) || 'قريب',
+      governorate: initialGov,
+      area: initialArea,
+      deliveryZone: order.deliveryZone || `${initialGov} - ${initialArea}`,
       deliveryFee: Number(order.deliveryFee || 0),
       datetimeStr: toDatetimeLocal(order.createdAt),
       notes: order.notes || ''
@@ -416,7 +443,9 @@ export default function Orders() {
             paymentStatus: orderForm.paymentStatus || 'تم الدفع',
             paymentMethod: orderForm.paymentMethod,
             deliveryType: orderForm.deliveryType || 'قدوم شخصي',
-            deliveryZone: orderForm.deliveryType === 'توصيل' ? (orderForm.deliveryZone || 'قريب') : undefined,
+            governorate: orderForm.deliveryType === 'توصيل' ? orderForm.governorate : undefined,
+            area: orderForm.deliveryType === 'توصيل' ? orderForm.area : undefined,
+            deliveryZone: orderForm.deliveryType === 'توصيل' ? (`${orderForm.governorate} - ${orderForm.area}` as DeliveryZone) : undefined,
             deliveryFee: orderForm.deliveryType === 'توصيل' ? Number(orderForm.deliveryFee || 0) : 0,
             notes: orderForm.notes.trim(),
             createdAt: createdAtMs,
@@ -440,7 +469,9 @@ export default function Orders() {
         paymentStatus: orderForm.paymentStatus || 'تم الدفع',
         paymentMethod: orderForm.paymentMethod,
         deliveryType: orderForm.deliveryType || 'قدوم شخصي',
-        deliveryZone: orderForm.deliveryType === 'توصيل' ? (orderForm.deliveryZone || 'قريب') : undefined,
+        governorate: orderForm.deliveryType === 'توصيل' ? orderForm.governorate : undefined,
+        area: orderForm.deliveryType === 'توصيل' ? orderForm.area : undefined,
+        deliveryZone: orderForm.deliveryType === 'توصيل' ? (`${orderForm.governorate} - ${orderForm.area}` as DeliveryZone) : undefined,
         deliveryFee: orderForm.deliveryType === 'توصيل' ? Number(orderForm.deliveryFee || 0) : 0,
         notes: orderForm.notes.trim(),
         createdAt: createdAtMs,
@@ -913,8 +944,9 @@ export default function Orders() {
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#25493D]/10 text-[#1D3A30] border border-[#C7B895]/40">
                         <Truck className="w-3 h-3 text-[#A99872]" />
                         <span>
-                          توصيل {order.deliveryZone ? `• ${order.deliveryZone}` : ''}
-                          {Number(order.deliveryFee || 0) > 0 && ` (+${order.deliveryFee} د.ب)`}
+                          توصيل {order.governorate ? `• ${order.governorate}` : (order.deliveryZone ? `• ${order.deliveryZone}` : '')}
+                          {order.area && (!order.deliveryZone || !order.deliveryZone.includes(order.area)) ? ` (${order.area})` : ''}
+                          {Number(order.deliveryFee || 0) > 0 && ` (+${Number(order.deliveryFee).toFixed(2)} د.ب)`}
                         </span>
                       </span>
                     ) : (
@@ -1453,7 +1485,7 @@ export default function Orders() {
                     </label>
                     <span className="text-[10px] text-[#A99872] font-bold">
                       {orderForm.deliveryType === 'توصيل' 
-                        ? (orderForm.deliveryFee > 0 ? `+${orderForm.deliveryFee} د.ب` : 'مجاني')
+                        ? (orderForm.deliveryFee > 0 ? `+${orderForm.deliveryFee.toFixed(2)} د.ب` : 'مجاني')
                         : 'استلام مباشر'}
                     </span>
                   </div>
@@ -1489,58 +1521,57 @@ export default function Orders() {
                     </button>
                   </div>
 
-                  {/* If توصيل is chosen, show the 3 zone options */}
+                  {/* If توصيل is chosen, show the 4 governorates and cascading areas */}
                   {orderForm.deliveryType === 'توصيل' && (
                     <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="pt-2 border-t border-[#C7B895]/30 space-y-2"
+                      className="pt-2 border-t border-[#C7B895]/30 space-y-2.5"
                     >
                       <span className="text-[10px] font-bold text-[#1D3A30]/80 block">
-                        نطاق التوصيل:
+                        المحافظة ورسوم التوصيل:
                       </span>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleDeliveryZoneChange('قريب')}
-                          className={cn(
-                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
-                            orderForm.deliveryZone === 'قريب'
-                              ? "bg-emerald-800 text-white border-emerald-800 shadow-xs"
-                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-emerald-50"
-                          )}
-                        >
-                          <span className="text-[11px] font-black">قريب</span>
-                          <span className="text-[9px] font-bold opacity-90">مجاني</span>
-                        </button>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {(Object.keys(BAHRAIN_GOVERNORATES) as BahrainGovernorateName[]).map((govName) => {
+                          const gov = BAHRAIN_GOVERNORATES[govName];
+                          const isSelected = orderForm.governorate === govName;
+                          return (
+                            <button
+                              key={govName}
+                              type="button"
+                              onClick={() => handleGovernorateChange(govName)}
+                              className={cn(
+                                "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
+                                isSelected
+                                  ? "bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs"
+                                  : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
+                              )}
+                            >
+                              <span className="text-[11px] font-black">{gov.shortName}</span>
+                              <span className="text-[9px] font-bold opacity-90">
+                                {gov.fee === 0.5 ? '500 فلس' : gov.fee === 1 ? '1.00 د.ب' : '2.00 د.ب'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeliveryZoneChange('متوسط')}
-                          className={cn(
-                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
-                            orderForm.deliveryZone === 'متوسط'
-                              ? "bg-[#A99872] text-[#FAF7F0] border-[#A99872] shadow-xs"
-                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
-                          )}
+                      {/* Cascading Area Dropdown */}
+                      <div>
+                        <label className="text-[10px] font-bold text-[#1D3A30]/80 block mb-1">
+                          منطقة التوصيل ({BAHRAIN_GOVERNORATES[orderForm.governorate as BahrainGovernorateName]?.name || 'المحافظة'}):
+                        </label>
+                        <select
+                          value={orderForm.area}
+                          onChange={(e) => handleAreaChange(e.target.value)}
+                          className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold"
                         >
-                          <span className="text-[11px] font-black">متوسط</span>
-                          <span className="text-[9px] font-bold opacity-90">+1 د.ب</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeliveryZoneChange('بعيد')}
-                          className={cn(
-                            "py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center gap-0.5",
-                            orderForm.deliveryZone === 'بعيد'
-                              ? "bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs"
-                              : "bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]"
-                          )}
-                        >
-                          <span className="text-[11px] font-black">بعيد</span>
-                          <span className="text-[9px] font-bold opacity-90">+2 د.ب</span>
-                        </button>
+                          {BAHRAIN_GOVERNORATES[orderForm.governorate as BahrainGovernorateName]?.areas.map((area) => (
+                            <option key={area} value={area}>
+                              {area}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </motion.div>
                   )}
@@ -1670,7 +1701,7 @@ export default function Orders() {
                   <span>آلية الاستلام: {selectedInvoice.deliveryType || 'قدوم شخصي'}</span>
                   <span>
                     {selectedInvoice.deliveryType === 'توصيل' 
-                      ? `نطاق: ${selectedInvoice.deliveryZone || 'قريب'} (${Number(selectedInvoice.deliveryFee || 0) > 0 ? `+${selectedInvoice.deliveryFee} د.ب` : 'مجاني'})`
+                      ? `${selectedInvoice.governorate ? selectedInvoice.governorate : (selectedInvoice.deliveryZone || 'توصيل')}${selectedInvoice.area && (!selectedInvoice.deliveryZone || !selectedInvoice.deliveryZone.includes(selectedInvoice.area)) ? ` (${selectedInvoice.area})` : ''} (${Number(selectedInvoice.deliveryFee || 0) > 0 ? `+${Number(selectedInvoice.deliveryFee).toFixed(2)} د.ب` : 'مجاني'})`
                       : 'استلام من المحل'}
                   </span>
                 </div>
