@@ -16,7 +16,8 @@ import {
   Truck,
   User,
   ArrowUp,
-  CheckCircle2
+  CheckCircle2,
+  RotateCw
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
@@ -148,120 +149,211 @@ export default function Store() {
         document.body.style.overflow = prevOverflow;
         window.removeEventListener('keydown', handleKeyDown);
       };
+    } else {
+      document.body.style.overflow = '';
     }
   }, [selectedFabric]);
 
-  // Load catalog & store settings
-  useEffect(() => {
-    async function fetchCatalogAndSettings() {
-      try {
-        let fabricsFound = false;
+  const [isRefreshingStore, setIsRefreshingStore] = useState(false);
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
 
-        // 1. Direct Supabase Cloud load (primary source on Vercel & static deployments)
-        let resolvedSettings: StoreSettings | null = null;
-        if (supabase) {
-          try {
-            // First check __store_settings__ in inventory table (guaranteed public read)
-            const { data: invSettingsRow } = await supabase
-              .from('inventory')
-              .select('image_url')
-              .eq('id', '__store_settings__')
-              .maybeSingle();
-
-            if (invSettingsRow?.image_url) {
-              try {
-                const parsed = JSON.parse(invSettingsRow.image_url);
-                if (parsed && typeof parsed === 'object') {
-                  resolvedSettings = {
-                    ...DEFAULT_STORE_SETTINGS,
-                    ...parsed,
-                    seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
-                      ? parsed.seasonsOrder
-                      : ['winter', 'summer', 'spring']
-                  };
-                }
-              } catch {}
-            }
-
-            // Also check dedicated store_settings table if it exists
-            const { data: sbSettings } = await supabase
-              .from('store_settings')
-              .select('settings')
-              .order('updated_at', { ascending: false })
-              .limit(1);
-
-            if (sbSettings && sbSettings.length > 0 && sbSettings[0]?.settings) {
-              resolvedSettings = {
-                ...DEFAULT_STORE_SETTINGS,
-                ...(resolvedSettings || {}),
-                ...sbSettings[0].settings
-              };
-            }
-          } catch {}
+  // Load catalog & store settings (reusable for initial mount and manual refresh)
+  const fetchCatalogAndSettings = async (isManual = false) => {
+    if (isManual) setIsRefreshingStore(true);
+    try {
+      if (isManual) {
+        // Clear caches and trigger SW update on manual refresh
+        if ('caches' in window) {
+          const names = await caches.keys();
+          await Promise.all(names.map(n => caches.delete(n))).catch(() => {});
         }
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            await reg.update().catch(() => {});
+          }
+        }
+      }
 
-        // 1b. Fetch store settings from server API (when running with Express backend)
+      let fabricsFound = false;
+
+      // 1. Direct Supabase Cloud load (primary source on Vercel & static deployments)
+      let resolvedSettings: StoreSettings | null = null;
+      if (supabase) {
         try {
-          const sRes = await fetch(`/api/store-settings?t=${Date.now()}`);
-          if (sRes.ok) {
-            const contentType = sRes.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-              const sData = await sRes.json();
-              if (sData?.settings) {
-                const serverTime = sData.settings.updatedAt || 0;
-                const currentCloudTime = resolvedSettings?.updatedAt || 0;
-                if (!resolvedSettings || serverTime >= currentCloudTime) {
-                  resolvedSettings = {
-                    ...DEFAULT_STORE_SETTINGS,
-                    ...(resolvedSettings || {}),
-                    ...sData.settings,
-                    seasonsOrder: sData.settings.seasonsOrder && sData.settings.seasonsOrder.length > 0
-                      ? sData.settings.seasonsOrder
-                      : ['winter', 'summer', 'spring']
-                  };
-                }
+          // First check __store_settings__ in inventory table (guaranteed public read)
+          const { data: invSettingsRow } = await supabase
+            .from('inventory')
+            .select('image_url')
+            .eq('id', '__store_settings__')
+            .maybeSingle();
+
+          if (invSettingsRow?.image_url) {
+            try {
+              const parsed = JSON.parse(invSettingsRow.image_url);
+              if (parsed && typeof parsed === 'object') {
+                resolvedSettings = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...parsed,
+                  seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
+                    ? parsed.seasonsOrder
+                    : ['winter', 'summer', 'spring']
+                };
+              }
+            } catch {}
+          }
+
+          // Also check dedicated store_settings table if it exists
+          const { data: sbSettings } = await supabase
+            .from('store_settings')
+            .select('settings')
+            .order('updated_at', { ascending: false })
+            .limit(1);
+
+          if (sbSettings && sbSettings.length > 0 && sbSettings[0]?.settings) {
+            resolvedSettings = {
+              ...DEFAULT_STORE_SETTINGS,
+              ...(resolvedSettings || {}),
+              ...sbSettings[0].settings
+            };
+          }
+        } catch {}
+      }
+
+      // 1b. Fetch store settings from server API (when running with Express backend)
+      try {
+        const sRes = await fetch(`/api/store-settings?t=${Date.now()}`);
+        if (sRes.ok) {
+          const contentType = sRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const sData = await sRes.json();
+            if (sData?.settings) {
+              const serverTime = sData.settings.updatedAt || 0;
+              const currentCloudTime = resolvedSettings?.updatedAt || 0;
+              if (!resolvedSettings || serverTime >= currentCloudTime) {
+                resolvedSettings = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...(resolvedSettings || {}),
+                  ...sData.settings,
+                  seasonsOrder: sData.settings.seasonsOrder && sData.settings.seasonsOrder.length > 0
+                    ? sData.settings.seasonsOrder
+                    : ['winter', 'summer', 'spring']
+                };
               }
             }
           }
-        } catch {}
-
-        // 1c. Reconcile with local cached settings
-        const localCached = getLocalStoreSettings();
-        const localTime = localCached?.updatedAt || 0;
-        const cloudTime = resolvedSettings?.updatedAt || 0;
-
-        const finalSettings: StoreSettings = (localCached && localTime >= cloudTime && localTime > 0) 
-          ? localCached 
-          : (resolvedSettings || localCached || DEFAULT_STORE_SETTINGS);
-
-        setStoreSettings(finalSettings);
-        try {
-          localStorage.setItem('nasjah_store_settings', JSON.stringify(finalSettings));
-        } catch {}
-
-        if (finalSettings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(finalSettings.defaultSeason)) {
-          setSelectedSeason(finalSettings.defaultSeason as SeasonFilter);
         }
+      } catch {}
 
-        // 2. Fetch directly from Supabase Cloud (works seamlessly on Vercel and all frontends)
-        if (supabase) {
-          try {
-            const { data: sbData, error: sbError } = await supabase
-              .from('inventory')
-              .select('*');
+      // 1c. Reconcile with local cached settings
+      const localCached = getLocalStoreSettings();
+      const localTime = localCached?.updatedAt || 0;
+      const cloudTime = resolvedSettings?.updatedAt || 0;
 
-            if (!sbError && sbData && sbData.length > 0) {
-              const mapped: PublicFabric[] = sbData
-                .filter((item: any) => !isPackagingItem(item) && item.id !== '__store_settings__' && item.category !== '__system__')
+      const finalSettings: StoreSettings = (localCached && localTime >= cloudTime && localTime > 0) 
+        ? localCached 
+        : (resolvedSettings || localCached || DEFAULT_STORE_SETTINGS);
+
+      setStoreSettings(finalSettings);
+      try {
+        localStorage.setItem('nasjah_store_settings', JSON.stringify(finalSettings));
+      } catch {}
+
+      if (finalSettings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(finalSettings.defaultSeason)) {
+        setSelectedSeason(finalSettings.defaultSeason as SeasonFilter);
+      }
+
+      // 2. Fetch directly from Supabase Cloud (works seamlessly on Vercel and all frontends)
+      if (supabase) {
+        try {
+          const { data: sbData, error: sbError } = await supabase
+            .from('inventory')
+            .select('*');
+
+          if (!sbError && sbData && sbData.length > 0) {
+            const mapped: PublicFabric[] = sbData
+              .filter((item: any) => !isPackagingItem(item) && item.id !== '__store_settings__' && item.category !== '__system__')
+              .map((item: any) => {
+                let parsedMeta: any = {};
+                if (item.barcode && typeof item.barcode === 'string' && item.barcode.startsWith('{')) {
+                  try { parsedMeta = JSON.parse(item.barcode); } catch {}
+                }
+                const sourcingType = parsedMeta.sourcingType || item.sourcingType || 'stock';
+                const isCatalogItem = sourcingType === 'catalog';
+                const qty = Number(item.quantity || 0);
+
+                return {
+                  id: String(item.id),
+                  name: item.name || '',
+                  price: Number(item.price || 0),
+                  quantity: qty,
+                  isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
+                  isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
+                  isOutOfStock: !isCatalogItem && qty <= 0,
+                  category: item.category || 'أقمشة رجالية',
+                  imageUrl: item.image_url || item.imageUrl || item.image || '',
+                  season: parsedMeta.season || item.season || item.season_type || '',
+                  description: parsedMeta.description || item.description || ''
+                };
+              });
+            if (mapped.length > 0) {
+              setCatalog(mapped);
+              fabricsFound = true;
+              // If currently selected season has 0 fabrics, automatically switch to 'all' so fabrics appear immediately
+              setSelectedSeason((currentSeason) => {
+                if (currentSeason === 'all') return 'all';
+                const match = mapped.some(f => getFabricSeason(f) === currentSeason);
+                return match ? currentSeason : 'all';
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Direct Supabase fetch note:', e);
+        }
+      }
+
+      // 3. Query /api/public-catalog (for full-stack dev / local server / cloud run)
+      try {
+        const res = await fetch(`/api/public-catalog?t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!fabricsFound && data.catalog && Array.isArray(data.catalog) && data.catalog.length > 0) {
+            const fabricsOnly = data.catalog.filter((f: any) => !isPackagingItem(f));
+            if (fabricsOnly.length > 0) {
+              setCatalog(fabricsOnly);
+              fabricsFound = true;
+              setSelectedSeason((currentSeason) => {
+                if (currentSeason === 'all') return 'all';
+                const match = fabricsOnly.some(f => getFabricSeason(f) === currentSeason);
+                return match ? currentSeason : 'all';
+              });
+            }
+          }
+          if (data.settings) {
+            setStoreSettings(prev => ({
+              ...DEFAULT_STORE_SETTINGS,
+              ...prev,
+              ...data.settings,
+              seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0
+                ? data.settings.seasonsOrder
+                : ['winter', 'summer', 'spring']
+            }));
+          }
+        }
+      } catch {}
+
+      // 4. Fallback to /api/store-data if still not populated
+      if (!fabricsFound) {
+        try {
+          const fallbackRes = await fetch(`/api/store-data?t=${Date.now()}`);
+          if (fallbackRes.ok) {
+            const data = await fallbackRes.json();
+            if (data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0) {
+              const mapped: PublicFabric[] = data.inventory
+                .filter((item: any) => !isPackagingItem(item))
                 .map((item: any) => {
-                  let parsedMeta: any = {};
-                  if (item.barcode && typeof item.barcode === 'string' && item.barcode.startsWith('{')) {
-                    try { parsedMeta = JSON.parse(item.barcode); } catch {}
-                  }
-                  const sourcingType = parsedMeta.sourcingType || item.sourcingType || 'stock';
-                  const isCatalogItem = sourcingType === 'catalog';
+                  const isCatalogItem = item.sourcingType === 'catalog';
                   const qty = Number(item.quantity || 0);
-
                   return {
                     id: String(item.id),
                     name: item.name || '',
@@ -271,96 +363,38 @@ export default function Store() {
                     isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
                     isOutOfStock: !isCatalogItem && qty <= 0,
                     category: item.category || 'أقمشة رجالية',
-                    imageUrl: item.image_url || item.imageUrl || item.image || '',
-                    season: parsedMeta.season || item.season || item.season_type || '',
-                    description: parsedMeta.description || item.description || ''
+                    imageUrl: item.imageUrl || item.image_url || item.image || '',
+                    season: item.season || '',
+                    description: item.description || ''
                   };
                 });
               if (mapped.length > 0) {
                 setCatalog(mapped);
-                fabricsFound = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Direct Supabase fetch note:', e);
-          }
-        }
-
-        // 3. Query /api/public-catalog (for full-stack dev / local server / cloud run)
-        try {
-          const res = await fetch(`/api/public-catalog?t=${Date.now()}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (!fabricsFound && data.catalog && Array.isArray(data.catalog) && data.catalog.length > 0) {
-              const fabricsOnly = data.catalog.filter((f: any) => !isPackagingItem(f));
-              if (fabricsOnly.length > 0) {
-                setCatalog(fabricsOnly);
-                fabricsFound = true;
-              }
-            }
-            if (data.settings) {
-              setStoreSettings(prev => ({
-                ...DEFAULT_STORE_SETTINGS,
-                ...prev,
-                ...data.settings,
-                seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0
-                  ? data.settings.seasonsOrder
-                  : ['winter', 'summer', 'spring']
-              }));
-              if (data.settings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(data.settings.defaultSeason)) {
-                setSelectedSeason(data.settings.defaultSeason as SeasonFilter);
+                setSelectedSeason((currentSeason) => {
+                  if (currentSeason === 'all') return 'all';
+                  const match = mapped.some(f => getFabricSeason(f) === currentSeason);
+                  return match ? currentSeason : 'all';
+                });
               }
             }
           }
         } catch {}
-
-        // 4. Fallback to /api/store-data if still not populated
-        if (!fabricsFound) {
-          try {
-            const fallbackRes = await fetch(`/api/store-data?t=${Date.now()}`);
-            if (fallbackRes.ok) {
-              const data = await fallbackRes.json();
-              if (data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0) {
-                const mapped: PublicFabric[] = data.inventory
-                  .filter((item: any) => !isPackagingItem(item))
-                  .map((item: any) => {
-                    const isCatalogItem = item.sourcingType === 'catalog';
-                    const qty = Number(item.quantity || 0);
-                    return {
-                      id: String(item.id),
-                      name: item.name || '',
-                      price: Number(item.price || 0),
-                      quantity: qty,
-                      isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
-                      isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
-                      isOutOfStock: !isCatalogItem && qty <= 0,
-                      category: item.category || 'أقمشة رجالية',
-                      imageUrl: item.imageUrl || item.image_url || item.image || '',
-                      season: item.season || '',
-                      description: item.description || ''
-                    };
-                  });
-                if (mapped.length > 0) {
-                  setCatalog(mapped);
-                }
-              }
-              if (data.settings) {
-                setStoreSettings(prev => ({
-                  ...DEFAULT_STORE_SETTINGS,
-                  ...prev,
-                  ...data.settings
-                }));
-              }
-            }
-          } catch {}
-        }
-      } catch (err) {
-        console.error('Failed to load store data:', err);
-      } finally {
-        setLoading(false);
       }
+    } catch (err) {
+      console.error('Failed to load store data:', err);
+    } finally {
+      setLoading(false);
+      setIsRefreshingStore(false);
     }
+  };
 
+  const handleRefreshStore = async () => {
+    await fetchCatalogAndSettings(true);
+    setRefreshSuccess(true);
+    setTimeout(() => setRefreshSuccess(false), 3000);
+  };
+
+  useEffect(() => {
     fetchCatalogAndSettings();
   }, []);
 
@@ -485,6 +519,21 @@ export default function Store() {
   return (
     <div className="min-h-screen w-full bg-[#FAF7F0] text-[#1D3A30] font-sans antialiased selection:bg-[#C7B895]/30 selection:text-[#1D3A30] text-right flex flex-col overflow-x-hidden" dir="rtl">
       
+      {/* Toast Notification when refreshed */}
+      <AnimatePresence>
+        {refreshSuccess && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-12 left-1/2 -translate-x-1/2 z-50 bg-[#1D3A30] text-[#E8D5A8] border border-[#C7B895]/50 px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold pointer-events-none"
+          >
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>تم تحديث بيانات المتجر والمخزون بنجاح</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 1. COMPACT LUXURY ANNOUNCEMENT BAR */}
       {storeSettings.headerVisible && activeAnnouncement && (
         <div className="bg-[#1D3A30] text-[#FAF7F0] text-[11px] sm:text-xs py-2 px-4 border-b border-[#C7B895]/25 text-center font-medium tracking-wide flex items-center justify-center gap-2">
@@ -515,9 +564,23 @@ export default function Store() {
             </div>
           </div>
 
-          {/* WhatsApp Contact & 3-Dots Corner Menu */}
-          <div className="flex items-center gap-2.5">
+          {/* WhatsApp Contact, Refresh Button & 3-Dots Corner Menu */}
+          <div className="flex items-center gap-2">
             
+            {/* Quick Refresh Button */}
+            <button
+              type="button"
+              onClick={() => handleRefreshStore()}
+              disabled={isRefreshingStore}
+              aria-label="تحديث بيانات الأقمشة"
+              title="تحديث البيانات من الخادم"
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all border active:scale-95 cursor-pointer bg-white hover:bg-[#FAF7F0] text-[#1D3A30] border-[#C7B895]/50 shadow-2xs ${
+                isRefreshingStore ? 'opacity-70 cursor-wait' : ''
+              }`}
+            >
+              <RotateCw className={`w-4 h-4 text-[#1D3A30] ${isRefreshingStore ? 'animate-spin text-[#A99872]' : ''}`} />
+            </button>
+
             {/* Direct WhatsApp Call to Action (38244795) */}
             <a
               href={getWhatsAppLink()}
@@ -706,6 +769,18 @@ export default function Store() {
                           <Instagram className="w-4 h-4 text-[#C7B895]" />
                           <span>إنستغرام (@{storeSettings.instagramHandle || 'nasjah.bh'})</span>
                         </a>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            handleRefreshStore();
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[#1D3A30] hover:bg-[#FAF7F0] transition text-right cursor-pointer"
+                        >
+                          <RotateCw className={`w-4 h-4 text-[#A99872] ${isRefreshingStore ? 'animate-spin' : ''}`} />
+                          <span>تحديث المتجر والبيانات</span>
+                        </button>
                       </div>
 
                     </motion.div>
@@ -817,34 +892,72 @@ export default function Store() {
             <p className="text-xs font-bold text-[#1D3A30]/60">جارِ تحميل الأقمشة الفاخرة...</p>
           </div>
         ) : totalVisibleFabrics === 0 ? (
-          <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-[#C7B895]/30 max-w-lg mx-auto space-y-3 shadow-xs my-8">
+          <div className="bg-white rounded-3xl p-8 sm:p-12 text-center border border-[#C7B895]/30 max-w-lg mx-auto space-y-4 shadow-xs my-8">
             <div className="w-12 h-12 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40 flex items-center justify-center mx-auto text-[#1D3A30]">
               <Layers className="w-6 h-6 text-[#A99872]" />
             </div>
-            <h3 className="text-sm sm:text-base font-black text-[#1D3A30]">
-              لا توجد أقمشة معروضة حالياً
-            </h3>
-            <p className="text-xs text-[#1D3A30]/65 leading-relaxed">
-              {searchQuery ? 'لم يتم العثور على نتائج تطابق بحثك.' : 'يجري تحديث تشكيلة الأقمشة الفاخرة، تواصل معنا عبر واتساب لمعرفة المتوفر حالياً.'}
-            </p>
-            {searchQuery ? (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="mt-2 px-4 py-2 bg-[#FAF7F0] hover:bg-[#F2ECE0] text-[#1D3A30] border border-[#C7B895]/40 rounded-xl text-xs font-bold transition cursor-pointer"
-              >
-                مسح البحث
-              </button>
+            {catalog.length > 0 ? (
+              <>
+                <h3 className="text-sm sm:text-base font-black text-[#1D3A30]">
+                  لا توجد أقمشة تطابق الفلتر الحالي
+                </h3>
+                <p className="text-xs text-[#1D3A30]/65 leading-relaxed">
+                  {searchQuery 
+                    ? `لم يتم العثور على نتائج لبحثك عن "${searchQuery}".` 
+                    : `لا توجد أقمشة في هذا التصنيف، ولكن تتوفر أقمشة أخرى في الأقسام المتبقية (${catalog.length} قماش).`}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSeason('all');
+                      setSearchQuery('');
+                    }}
+                    className="px-5 py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-2"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#C7B895]" />
+                    <span>عرض جميع الأقمشة ({catalog.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRefreshStore()}
+                    disabled={isRefreshingStore}
+                    className="px-4 py-2.5 bg-white hover:bg-[#FAF7F0] text-[#1D3A30] border border-[#C7B895]/40 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isRefreshingStore ? 'animate-spin text-[#A99872]' : ''}`} />
+                    <span>تحديث البيانات</span>
+                  </button>
+                </div>
+              </>
             ) : (
-              <a
-                href={`https://wa.me/${whatsAppPhone}?text=${encodeURIComponent('السلام عليكم، أود الاستفسار عن تشكيلة الأقمشة الرجالية المتوفرة لديكم')}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 mt-2 px-5 py-2.5 bg-[#1D3A30] text-[#E8D5A8] rounded-xl text-xs font-bold transition hover:bg-[#25493D]"
-              >
-                <WhatsAppIcon className="w-4 h-4" />
-                <span>الاستفسار عبر واتساب</span>
-              </a>
+              <>
+                <h3 className="text-sm sm:text-base font-black text-[#1D3A30]">
+                  لا توجد أقمشة معروضة حالياً
+                </h3>
+                <p className="text-xs text-[#1D3A30]/65 leading-relaxed">
+                  يجري تحديث تشكيلة الأقمشة، يمكنك النقر على تحديث البيانات أدناه لجلب أحدث التحديثات من الخادم مباشرة.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleRefreshStore()}
+                    disabled={isRefreshingStore}
+                    className="px-5 py-2.5 bg-[#1D3A30] text-[#E8D5A8] rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-2 hover:bg-[#25493D]"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isRefreshingStore ? 'animate-spin text-[#E8D5A8]' : ''}`} />
+                    <span>تحديث البيانات من الخادم</span>
+                  </button>
+                  <a
+                    href={`https://wa.me/${whatsAppPhone}?text=${encodeURIComponent('السلام عليكم، أود الاستفسار عن تشكيلة الأقمشة الرجالية المتوفرة لديكم')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-white text-[#1D3A30] border border-[#C7B895]/40 rounded-xl text-xs font-bold transition hover:bg-[#FAF7F0]"
+                  >
+                    <WhatsAppIcon className="w-4 h-4 text-emerald-600" />
+                    <span>الاستفسار عبر واتساب</span>
+                  </a>
+                </div>
+              </>
             )}
           </div>
         ) : (

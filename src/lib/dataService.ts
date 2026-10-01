@@ -78,6 +78,8 @@ function sanitizeInventoryForMetadata(inventory: Fabric[]): Fabric[] {
  */
 export async function syncToSupabase(data: StoreData): Promise<void> {
   if (!supabase) return;
+  // Safety Guard: Never sync uninitialized runtime memory to database
+  if (!isInitialCloudLoadComplete) return;
 
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -120,9 +122,6 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         // Delete any orders from Supabase that were deleted
         const inClause = `(${orderIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('orders').delete().eq('user_id', userId).not('id', 'in', inClause);
-      } else {
-        // All orders deleted
-        await supabase.from('orders').delete().eq('user_id', userId);
       }
     } catch (orderErr) {
       console.warn('Orders cloud sync note:', orderErr);
@@ -148,9 +147,6 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         // Delete any expenses from Supabase that were deleted
         const inClause = `(${expenseIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('expenses').delete().eq('user_id', userId).not('id', 'in', inClause);
-      } else {
-        // All expenses deleted
-        await supabase.from('expenses').delete().eq('user_id', userId);
       }
     } catch (expErr) {
       console.warn('Expenses cloud sync note:', expErr);
@@ -189,9 +185,6 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         // Delete any fabrics from Supabase that were deleted
         const inClause = `(${inventoryIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('inventory').delete().eq('user_id', userId).not('id', 'in', inClause).neq('id', '__store_settings__');
-      } else {
-        // All inventory deleted
-        await supabase.from('inventory').delete().eq('user_id', userId).neq('id', '__store_settings__');
       }
     } catch (invErr) {
       console.warn('Inventory cloud sync note:', invErr);
@@ -335,6 +328,89 @@ export async function syncWithServer(): Promise<StoreData> {
           }
         } catch {}
 
+        // Direct public query for inventory (guaranteed to always load from Supabase Cloud)
+        try {
+          const invRes = await supabase.from('inventory').select('*');
+          if (!invRes.error && Array.isArray(invRes.data) && invRes.data.length > 0) {
+            tablesQueriedSuccessfully = true;
+            cloudInventory = invRes.data
+              .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
+              .map((f: any) => {
+                let parsedMeta: any = {};
+                if (f.barcode && typeof f.barcode === 'string' && f.barcode.startsWith('{')) {
+                  try { parsedMeta = JSON.parse(f.barcode); } catch {}
+                }
+
+                return {
+                  id: f.id,
+                  name: f.name || '',
+                  quantity: Number(f.quantity || 0),
+                  price: Number(f.price || 0),
+                  category: f.category || '',
+                  imageUrl: f.image_url || f.imageUrl || '',
+                  image: f.image_url || f.image || '',
+                  barcode: f.barcode || '',
+                  season: parsedMeta.season || f.season || '',
+                  description: parsedMeta.description || f.description || '',
+                  sourcingType: parsedMeta.sourcingType || f.sourcingType || 'stock',
+                  supplierName: parsedMeta.supplierName || f.supplierName || '',
+                  catalogCode: parsedMeta.catalogCode || f.catalogCode || '',
+                  costPrice: Number(parsedMeta.costPrice ?? f.costPrice ?? 0)
+                };
+              });
+          }
+        } catch (invErr) {
+          console.warn('Inventory direct fetch note:', invErr);
+        }
+
+        // Direct query for orders and expenses
+        try {
+          const [ordersRes, expRes] = await Promise.all([
+            supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
+            supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
+          ]);
+
+          if (!ordersRes.error && Array.isArray(ordersRes.data)) {
+            tablesQueriedSuccessfully = true;
+            cloudOrders = ordersRes.data.map((o: any) => ({
+              id: o.id,
+              customerName: o.customer_name || o.customerName || '',
+              phone: o.phone || '',
+              details: o.details || '',
+              price: Number(o.price || o.total || 0),
+              total: Number(o.total || o.price || 0),
+              status: o.status || 'قيد التجهيز',
+              paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
+              paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
+              deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+              deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+              deliveryZone: o.delivery_zone || o.deliveryZone || '',
+              deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
+              notes: o.notes || '',
+              fabricId: o.fabric_id || o.fabricId || undefined,
+              fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
+              fabricName: o.fabric_name || o.fabricName || undefined,
+              createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
+            }));
+          }
+
+          if (!expRes.error && Array.isArray(expRes.data)) {
+            tablesQueriedSuccessfully = true;
+            cloudExpenses = expRes.data.map((e: any) => ({
+              id: e.id,
+              description: e.description || '',
+              amount: Number(e.amount || 0),
+              category: e.category || 'أقمشة ومستلزمات المخزون',
+              paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
+              paidTo: e.paid_to || e.paidTo || '',
+              notes: e.notes || '',
+              createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
+            }));
+          }
+        } catch (tableErr) {
+          console.warn('Orders/Expenses query note:', tableErr);
+        }
+
         const { data: sessionData } = await supabase.auth.getSession();
         const session = sessionData?.session;
 
@@ -354,79 +430,6 @@ export async function syncWithServer(): Promise<StoreData> {
               profRes = { data: null, error: true };
             }
 
-            const [ordersRes, expRes, invRes] = await Promise.all([
-              supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
-              supabase.from('expenses').select('*').order('created_at_ms', { ascending: false }),
-              supabase.from('inventory').select('*')
-            ]);
-
-            if (!ordersRes.error && Array.isArray(ordersRes.data)) {
-              tablesQueriedSuccessfully = true;
-              cloudOrders = ordersRes.data.map((o: any) => ({
-                id: o.id,
-                customerName: o.customer_name || o.customerName || '',
-                phone: o.phone || '',
-                details: o.details || '',
-                price: Number(o.price || o.total || 0),
-                total: Number(o.total || o.price || 0),
-                status: o.status || 'قيد التجهيز',
-                paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
-                paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
-                deliveryMethod: o.delivery_method || o.deliveryMethod || '',
-                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
-                deliveryZone: o.delivery_zone || o.deliveryZone || '',
-                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
-                notes: o.notes || '',
-                fabricId: o.fabric_id || o.fabricId || undefined,
-                fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
-                fabricName: o.fabric_name || o.fabricName || undefined,
-                createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
-              }));
-            }
-
-            if (!expRes.error && Array.isArray(expRes.data)) {
-              tablesQueriedSuccessfully = true;
-              cloudExpenses = expRes.data.map((e: any) => ({
-                id: e.id,
-                description: e.description || '',
-                amount: Number(e.amount || 0),
-                category: e.category || 'أقمشة ومستلزمات المخزون',
-                paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
-                paidTo: e.paid_to || e.paidTo || '',
-                notes: e.notes || '',
-                createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-              }));
-            }
-
-            if (!invRes.error && Array.isArray(invRes.data)) {
-              tablesQueriedSuccessfully = true;
-              cloudInventory = invRes.data
-                .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
-                .map((f: any) => {
-                  let parsedMeta: any = {};
-                  if (f.barcode && typeof f.barcode === 'string' && f.barcode.startsWith('{')) {
-                    try { parsedMeta = JSON.parse(f.barcode); } catch {}
-                  }
-
-                  return {
-                    id: f.id,
-                    name: f.name || '',
-                    quantity: Number(f.quantity || 0),
-                    price: Number(f.price || 0),
-                    category: f.category || '',
-                    imageUrl: f.image_url || f.imageUrl || '',
-                    image: f.image_url || f.image || '',
-                    barcode: f.barcode || '',
-                    season: parsedMeta.season || f.season || '',
-                    description: parsedMeta.description || f.description || '',
-                    sourcingType: parsedMeta.sourcingType || f.sourcingType || 'stock',
-                    supplierName: parsedMeta.supplierName || f.supplierName || '',
-                    catalogCode: parsedMeta.catalogCode || f.catalogCode || '',
-                    costPrice: Number(parsedMeta.costPrice ?? f.costPrice ?? 0)
-                  };
-                });
-            }
-
             if (profRes && !(profRes as any).error && Array.isArray((profRes as any).data)) {
               cloudCustomProfits = (profRes as any).data.map((p: any) => ({
                 id: p.id,
@@ -437,8 +440,8 @@ export async function syncWithServer(): Promise<StoreData> {
                 createdAt: Number(p.created_at_ms || Date.now())
               }));
             }
-          } catch (tableErr) {
-            console.warn('Tables query note:', tableErr);
+          } catch (profErr) {
+            console.warn('Custom profits query note:', profErr);
           }
 
           // If tables returned empty or errored, check user metadata in Supabase
