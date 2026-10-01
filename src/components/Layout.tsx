@@ -169,7 +169,7 @@ export default function Layout() {
               نَسْجَة
             </span>
             <span className="text-[10px] text-[#C7B895] font-medium tracking-wide">
-              أتيلييه الأقمشة الرجالية الفاخرة
+              أقمشة وخياطة رجالية
             </span>
           </div>
         </Link>
@@ -182,7 +182,7 @@ export default function Layout() {
           </div>
         ) : <div />}
 
-        {/* Streamlined Clean Header Actions (Customer Store & The Unified Atelier Menu) */}
+        {/* Streamlined Clean Header Actions (Customer Store & Menu) */}
         <div className="flex items-center gap-3">
           
           {/* Direct Customer Storefront Link */}
@@ -197,7 +197,7 @@ export default function Layout() {
             <ExternalLink className="w-3 h-3 text-[#1D3A30]/70" />
           </Link>
 
-          {/* THE UNIFIED ATELIER MENU BUTTON (Replaces all top cluttered buttons) */}
+          {/* THE UNIFIED MENU BUTTON */}
           <button
             type="button"
             onClick={() => setIsMenuOpen(true)}
@@ -227,7 +227,7 @@ export default function Layout() {
               </p>
             ) : (
               <span className="text-[9px] text-[#C7B895]/80 font-normal leading-none mt-0.5">
-                أتيلييه الأقمشة الرجالية
+                أقمشة وخياطة رجالية
               </span>
             )}
           </div>

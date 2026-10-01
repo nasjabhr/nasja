@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
-import { isEmailAuthorized } from '../lib/security';
+import { isUserAuthorized } from '../lib/security';
 import { syncWithServer } from '../lib/dataService';
 
 export default function ProtectedRoute() {
@@ -17,8 +17,7 @@ export default function ProtectedRoute() {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const userEmail = session.user.email || '';
-        if (userEmail && !isEmailAuthorized(userEmail)) {
+        if (!isUserAuthorized(session.user)) {
           // Reject and sign out unauthorized user
           await supabase.auth.signOut();
           setAuthenticated(false);
@@ -37,8 +36,7 @@ export default function ProtectedRoute() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        const userEmail = session.user.email || '';
-        if (userEmail && !isEmailAuthorized(userEmail)) {
+        if (!isUserAuthorized(session.user)) {
           await supabase.auth.signOut();
           setAuthenticated(false);
         } else {

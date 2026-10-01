@@ -1,3 +1,5 @@
+export type SourcingType = 'catalog' | 'stock';
+
 export interface Fabric {
   id: string;
   name: string;
@@ -9,6 +11,10 @@ export interface Fabric {
   category?: string;
   season?: string; // صيفي، شتوي، ربيعي، كافة الفصول
   description?: string; // معلومات إضافية للمنتج (المواصفات، الملمس، بلد الصنع...)
+  sourcingType?: SourcingType; // 'catalog' = دفتر عينات / بالطلب من المحل, 'stock' = مخزون فعلي بالأمتار
+  supplierName?: string; // اسم المحل أو المورد (مثال: محل كاكولي، الخواجة...)
+  catalogCode?: string; // رقم أو كود الدفتر / العينة (مثال: دفتر 2 - عينة 14)
+  costPrice?: number; // سعر التكلفة / الشراء من المحل (د.ب)
 }
 
 export interface StoreSettings {
@@ -28,8 +34,8 @@ export interface StoreSettings {
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   whatsappNumber: "38244795",
   storeName: "نَسْجَة",
-  storeTagline: "أقمشة رجالية فاخرة ومختارة بعناية",
-  announcementText: "أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة • متوفرة بالقطعة وطاقة القماش",
+  storeTagline: "أقمشة وخياطة رجالية",
+  announcementText: "أقمشة وتفصيل حسب الطلب • جودة وخياطة مضمونة",
   instagramHandle: "nasjah.bh",
   defaultThobeMeters: 3.5,
   hideOutOfStock: false,

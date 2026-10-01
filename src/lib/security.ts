@@ -105,6 +105,8 @@ export function resetFailedAttempts(): void {
   }
 }
 
+export const AUTHORIZED_UID = '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
+
 /**
  * Checks whether an email is on the founders whitelist
  */
@@ -116,4 +118,17 @@ export function isEmailAuthorized(email: string): boolean {
   }
   // Allow if domain is specifically company domain or pre-configured in project
   return false;
+}
+
+/**
+ * Strictly verifies that the logged-in user possesses the required founder UID
+ * and authorized email.
+ */
+export function isUserAuthorized(user: { id?: string; email?: string | null } | null | undefined): boolean {
+  if (!user || !user.id) return false;
+  // Strict UID verification requested by founder
+  if (user.id !== AUTHORIZED_UID) return false;
+  // Whitelist email verification if email is available
+  if (user.email && !isEmailAuthorized(user.email)) return false;
+  return true;
 }

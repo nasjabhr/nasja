@@ -21,6 +21,7 @@ import {
   recordFailedAttempt, 
   resetFailedAttempts, 
   isEmailAuthorized,
+  isUserAuthorized,
   SecurityState 
 } from '../lib/security';
 import { syncWithServer } from '../lib/dataService';
@@ -97,6 +98,11 @@ export default function Login() {
       }
 
       if (data.session) {
+        if (!isUserAuthorized(data.session.user)) {
+          await supabase.auth.signOut();
+          setError('غير مصرح لك بالدخول: الحساب لا يملك صلاحية المالك (UID غير مطابق).');
+          return;
+        }
         resetFailedAttempts();
         registerCurrentSession();
         try {
@@ -175,6 +181,11 @@ export default function Login() {
       if (verifyError) throw verifyError;
 
       if (data.session) {
+        if (!isUserAuthorized(data.session.user)) {
+          await supabase.auth.signOut();
+          setError('غير مصرح لك بالدخول: الحساب لا يملك صلاحية المالك (UID غير مطابق).');
+          return;
+        }
         resetFailedAttempts();
         registerCurrentSession();
         try {

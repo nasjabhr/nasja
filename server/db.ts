@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 
 // Master account UID - strictly kept server-side to protect founder data privacy
-export const MASTER_USER_UID = process.env.MASTER_USER_UID || "0843d2d4-0702-4ecf-800b-956155367d0a";
+export const MASTER_USER_UID = process.env.MASTER_USER_UID || "53cc7a5b-bc93-40ff-908e-d582d85e0efc";
+const LEGACY_UID = "0843d2d4-0702-4ecf-800b-956155367d0a";
 
 const DB_DIR = path.join(process.cwd(), "data");
 const DB_FILE = path.join(DB_DIR, "database.json");
@@ -80,13 +81,25 @@ function readDatabase(): DatabaseSchema {
     const raw = fs.readFileSync(DB_FILE, "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed.users) parsed.users = {};
+
+    // Auto-migrate or copy legacy data if present and target is empty
+    const legacy = parsed.users[LEGACY_UID];
     if (!parsed.users[MASTER_USER_UID]) {
-      parsed.users[MASTER_USER_UID] = {
+      parsed.users[MASTER_USER_UID] = legacy ? { ...legacy } : {
         orders: [],
         expenses: [],
         inventory: DEFAULT_INVENTORY,
         lastUpdated: Date.now()
       };
+      writeDatabase(parsed);
+    } else if (legacy && parsed.users[MASTER_USER_UID].inventory.length === 0 && legacy.inventory.length > 0) {
+      parsed.users[MASTER_USER_UID].inventory = legacy.inventory;
+      if (parsed.users[MASTER_USER_UID].orders.length === 0) {
+        parsed.users[MASTER_USER_UID].orders = legacy.orders;
+      }
+      if (parsed.users[MASTER_USER_UID].expenses.length === 0) {
+        parsed.users[MASTER_USER_UID].expenses = legacy.expenses;
+      }
       writeDatabase(parsed);
     }
     return parsed;

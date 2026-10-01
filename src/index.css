@@ -138,3 +138,40 @@
   width: 0 !important;
   height: 0 !important;
 }
+
+/* ========================================================================= */
+/* Print Styling (Clean branded receipt printing)                           */
+/* ========================================================================= */
+@media print {
+  html, body, #root {
+    overflow: visible !important;
+    height: auto !important;
+    background: #FFFFFF !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #printable-invoice, #printable-invoice * {
+    visibility: visible;
+  }
+
+  #printable-invoice {
+    position: fixed !important;
+    left: 50% !important;
+    top: 20px !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 480px !important;
+    border: 1px solid #C7B895 !important;
+    box-shadow: none !important;
+    padding: 24px !important;
+    background: #FFFFFF !important;
+    z-index: 999999 !important;
+  }
+
+  #printable-invoice button {
+    display: none !important;
+  }
+}

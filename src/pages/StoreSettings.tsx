@@ -105,7 +105,7 @@ export default function StoreSettingsPage() {
       if (candidate && !isDirtyRef.current) {
         const candTime = candidate.updatedAt || 0;
         const currTime = settingsRef.current?.updatedAt || 0;
-        if (candTime >= currTime) {
+        if (candTime > currTime && candTime > 0) {
           setSettings(candidate);
           settingsRef.current = candidate;
           try {
@@ -123,7 +123,7 @@ export default function StoreSettingsPage() {
       if (e?.detail) {
         const incomingTime = e.detail.updatedAt || 0;
         const currentTime = settingsRef.current?.updatedAt || 0;
-        if (incomingTime >= currentTime) {
+        if (incomingTime > currentTime && incomingTime > 0) {
           setSettings(e.detail);
           settingsRef.current = e.detail;
         }

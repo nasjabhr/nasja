@@ -201,7 +201,7 @@ export default function Store() {
         const localTime = localCached?.updatedAt || 0;
         const cloudTime = resolvedSettings?.updatedAt || 0;
 
-        const finalSettings: StoreSettings = (localCached && localTime > cloudTime) 
+        const finalSettings: StoreSettings = (localCached && localTime >= cloudTime && localTime > 0) 
           ? localCached 
           : (resolvedSettings || localCached || DEFAULT_STORE_SETTINGS);
 
@@ -225,19 +225,26 @@ export default function Store() {
               const mapped: PublicFabric[] = sbData
                 .filter((item: any) => !isPackagingItem(item) && item.id !== '__store_settings__' && item.category !== '__system__')
                 .map((item: any) => {
+                  let parsedMeta: any = {};
+                  if (item.barcode && typeof item.barcode === 'string' && item.barcode.startsWith('{')) {
+                    try { parsedMeta = JSON.parse(item.barcode); } catch {}
+                  }
+                  const sourcingType = parsedMeta.sourcingType || item.sourcingType || 'stock';
+                  const isCatalogItem = sourcingType === 'catalog';
                   const qty = Number(item.quantity || 0);
+
                   return {
                     id: String(item.id),
                     name: item.name || '',
                     price: Number(item.price || 0),
                     quantity: qty,
-                    isAvailable: qty >= CRITICAL_FABRIC_THRESHOLD,
-                    isLowStock: qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
-                    isOutOfStock: qty <= 0,
-                    category: item.category || 'أقمشة رجالية فاخرة',
+                    isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
+                    isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
+                    isOutOfStock: !isCatalogItem && qty <= 0,
+                    category: item.category || 'أقمشة رجالية',
                     imageUrl: item.image_url || item.imageUrl || item.image || '',
-                    season: item.season || item.season_type || '',
-                    description: item.description || ''
+                    season: parsedMeta.season || item.season || item.season_type || '',
+                    description: parsedMeta.description || item.description || ''
                   };
                 });
               if (mapped.length > 0) {
@@ -287,19 +294,23 @@ export default function Store() {
               if (data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0) {
                 const mapped: PublicFabric[] = data.inventory
                   .filter((item: any) => !isPackagingItem(item))
-                  .map((item: any) => ({
-                    id: String(item.id),
-                    name: item.name || '',
-                    price: Number(item.price || 0),
-                    quantity: Number(item.quantity || 0),
-                    isAvailable: Number(item.quantity || 0) >= CRITICAL_FABRIC_THRESHOLD,
-                    isLowStock: Number(item.quantity || 0) <= CRITICAL_FABRIC_THRESHOLD && Number(item.quantity || 0) > 0,
-                    isOutOfStock: Number(item.quantity || 0) <= 0,
-                    category: item.category || 'أقمشة رجالية فاخرة',
-                    imageUrl: item.imageUrl || item.image_url || item.image || '',
-                    season: item.season || '',
-                    description: item.description || ''
-                  }));
+                  .map((item: any) => {
+                    const isCatalogItem = item.sourcingType === 'catalog';
+                    const qty = Number(item.quantity || 0);
+                    return {
+                      id: String(item.id),
+                      name: item.name || '',
+                      price: Number(item.price || 0),
+                      quantity: qty,
+                      isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
+                      isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
+                      isOutOfStock: !isCatalogItem && qty <= 0,
+                      category: item.category || 'أقمشة رجالية',
+                      imageUrl: item.imageUrl || item.image_url || item.image || '',
+                      season: item.season || '',
+                      description: item.description || ''
+                    };
+                  });
                 if (mapped.length > 0) {
                   setCatalog(mapped);
                 }
@@ -382,9 +393,9 @@ export default function Store() {
 
   // Estimated fabric price in modal (including delivery fee)
   const estimatedTotal = useMemo(() => {
-    if (!selectedFabric) return '0.000';
+    if (!selectedFabric) return '0.00';
     const fabricTotal = selectedFabric.price * activeMeters;
-    return (fabricTotal + deliveryFee).toFixed(3);
+    return (fabricTotal + deliveryFee).toFixed(2);
   }, [selectedFabric, activeMeters, deliveryFee]);
 
   // Direct WhatsApp Link
@@ -403,13 +414,13 @@ export default function Store() {
       if (fabric.description) {
         msg += `• مواصفات ومعلومات إضافية: ${fabric.description}\n`;
       }
-      msg += `• سعر المتر: ${fabric.price.toFixed(3)} د.ب\n`;
+      msg += `• سعر المتر: ${fabric.price.toFixed(2)} د.ب\n`;
       msg += `• الطول المطلوب: ${formattedMetersStr} متر (${defaultNote})\n`;
       msg += `• آلية الاستلام: ${deliveryNote}\n`;
       if (deliveryType === 'توصيل' && deliveryFee > 0) {
-        msg += `• رسوم التوصيل: ${deliveryFee.toFixed(3)} د.ب\n`;
+        msg += `• رسوم التوصيل: ${deliveryFee.toFixed(2)} د.ب\n`;
       }
-      msg += `• الإجمالي التقديري: ${(fabric.price * defaultMeters + deliveryFee).toFixed(3)} د.ب\n`;
+      msg += `• الإجمالي التقديري: ${(fabric.price * defaultMeters + deliveryFee).toFixed(2)} د.ب\n`;
     } else {
       msg += `أود الاستفسار والطلب لأفخر الأقمشة الرجالية المتاحة لديكم.\n`;
     }
@@ -459,7 +470,7 @@ export default function Store() {
                   {storeSettings.storeName || 'نَسْجَة'}
                 </h1>
                 <span className="text-[10px] font-bold text-[#1D3A30] bg-[#FAF7F0] px-2 py-0.5 rounded-md border border-[#C7B895]/40 hidden xs:inline-block">
-                  أقمشة رجالية فاخرة
+                  أقمشة وتفصيل رجالي
                 </span>
               </div>
               <p className="text-[11px] text-[#1D3A30]/65 hidden sm:block">
@@ -832,22 +843,18 @@ export default function Store() {
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center text-[#1D3A30]/40 p-3">
                             <Layers className="w-8 h-8 text-[#C7B895] mb-1.5 opacity-60" />
-                            <span className="text-[10px] sm:text-[11px] font-bold text-[#1D3A30]/60">قماش نَسْجَة فاخر</span>
+                            <span className="text-[10px] sm:text-[11px] font-bold text-[#1D3A30]/60">نَسْجَة</span>
                           </div>
                         )}
 
                         {/* Subtle gradient vignette at bottom of image for contrast */}
                         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/25 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
 
-                        {/* Stock Status Badge (Only shown if out of stock or low stock) */}
+                        {/* Stock Status Badge */}
                         <div className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 flex flex-col gap-1 items-start">
-                          {fabric.isOutOfStock || fabric.quantity <= 0 ? (
+                          {fabric.isOutOfStock ? (
                             <span className="px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-rose-950/95 text-white backdrop-blur-xs shadow-xs border border-rose-800/40">
-                              نفدت الكمية
-                            </span>
-                          ) : fabric.quantity <= 3.0 ? (
-                            <span className="px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-amber-600/95 text-white backdrop-blur-xs shadow-xs border border-amber-500/40 animate-pulse">
-                              متبقي {formatMeters(fabric.quantity)} م فقط
+                              غير متوفر حالياً
                             </span>
                           ) : null}
                         </div>
@@ -862,7 +869,7 @@ export default function Store() {
                             </h3>
                             <div className="flex items-baseline gap-1 flex-shrink-0">
                               <span className="text-sm sm:text-base font-black font-mono text-[#1D3A30]">
-                                {fabric.price.toFixed(3)}
+                                {fabric.price.toFixed(2)}
                               </span>
                               <span className="text-[9px] sm:text-[10px] font-bold text-[#A99872]">د.ب / م</span>
                             </div>
@@ -924,19 +931,15 @@ export default function Store() {
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-[#1D3A30]/40 p-4">
                     <Layers className="w-10 h-10 text-[#C7B895] mb-2 opacity-60" />
-                    <span className="text-xs font-bold text-[#1D3A30]/60">نَسْجَة للأقمشة الرجالية الفاخرة</span>
+                    <span className="text-xs font-bold text-[#1D3A30]/60">متجر وخياطة نَسْجَة</span>
                   </div>
                 )}
 
                 {/* Stock Status Badge inside Modal */}
                 <div className="absolute top-3 right-3 flex items-center gap-1.5">
-                  {selectedFabric.isOutOfStock || selectedFabric.quantity <= 0 ? (
+                  {selectedFabric.isOutOfStock ? (
                     <span className="px-2.5 py-1 rounded-full text-xs font-black bg-rose-900 text-white shadow-md">
-                      نفدت الكمية
-                    </span>
-                  ) : selectedFabric.quantity <= 3.0 ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-black bg-amber-600 text-white shadow-md">
-                      متبقي {formatMeters(selectedFabric.quantity)} متر فقط
+                      غير متوفر حالياً
                     </span>
                   ) : null}
                 </div>
@@ -950,7 +953,7 @@ export default function Store() {
                   </h3>
                   <div className="flex items-baseline gap-1 bg-[#FAF7F0] px-3 py-1 rounded-xl border border-[#C7B895]/30">
                     <span className="text-base sm:text-lg font-black font-mono text-[#1D3A30]">
-                      {selectedFabric.price.toFixed(3)}
+                      {selectedFabric.price.toFixed(2)}
                     </span>
                     <span className="text-xs font-bold text-[#A99872]">د.ب / متر</span>
                   </div>
@@ -1188,12 +1191,12 @@ export default function Store() {
               <div className="p-4 rounded-2xl bg-[#1D3A30] text-[#FAF7F0] space-y-2 shadow-sm border border-[#C7B895]/30">
                 <div className="flex items-center justify-between text-xs text-[#FAF7F0]/80">
                   <span>سعر المتر × {formatMeters(activeMeters)} متر:</span>
-                  <span className="font-mono">{(selectedFabric.price * activeMeters).toFixed(3)} د.ب</span>
+                  <span className="font-mono">{(selectedFabric.price * activeMeters).toFixed(2)} د.ب</span>
                 </div>
                 {deliveryType === 'توصيل' && deliveryFee > 0 && (
                   <div className="flex items-center justify-between text-xs text-[#E8D5A8]">
                     <span>رسوم التوصيل ({deliveryZone}):</span>
-                    <span className="font-mono">+{deliveryFee.toFixed(3)} د.ب</span>
+                    <span className="font-mono">+{deliveryFee.toFixed(2)} د.ب</span>
                   </div>
                 )}
                 <div className="flex items-baseline justify-between pt-1 border-t border-[#C7B895]/20">

@@ -1,9 +1,9 @@
 {
   "whatsappNumber": "38244795",
   "storeName": "نَسْجَة",
-  "storeTagline": "أقمشة رجالية فاخرة ومختارة بعناية",
-  "announcementText": "أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة",
-  "instagramHandle": "nasja.bhr",
+  "storeTagline": "أفخر الأقمشة الرجالية",
+  "announcementText": "مرحباً بكم في نَسْجَة",
+  "instagramHandle": "nasjah.bh",
   "defaultThobeMeters": 3.5,
   "hideOutOfStock": false,
   "defaultSeason": "all",
@@ -12,5 +12,6 @@
     "winter",
     "spring",
     "summer"
-  ]
+  ],
+  "updatedAt": 1790806778157
 }

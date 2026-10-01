@@ -99,22 +99,22 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           price: Number(o.price || o.total || 0),
           total: Number(o.total || o.price || 0),
           status: o.status || 'قيد التجهيز',
-          payment_status: o.paymentStatus || 'تم الدفع',
           payment_method: o.paymentMethod || 'بنفت بي',
           delivery_method: o.deliveryMethod || '',
           delivery_type: o.deliveryType || 'قدوم شخصي',
           delivery_zone: o.deliveryZone || '',
           delivery_fee: Number(o.deliveryFee) || 0,
+          fabric_id: o.fabricId || null,
+          fabric_meters: o.fabricMeters ? Number(o.fabricMeters) : null,
           notes: o.notes || '',
           created_at_ms: o.createdAt || Date.now()
         }));
         
-        try {
-          await supabase.from('orders').upsert(mappedOrders);
-        } catch {
-          // Fallback if delivery columns do not exist yet in Supabase table
-          const fallbackOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, payment_status, ...rest }: any) => rest);
-          await supabase.from('orders').upsert(fallbackOrders);
+        const { error: ordErr } = await supabase.from('orders').upsert(mappedOrders);
+        if (ordErr) {
+          // Minimal fallback if some columns are missing
+          const minimalOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, fabric_id, fabric_meters, ...rest }: any) => rest);
+          await supabase.from('orders').upsert(minimalOrders);
         }
 
         // Delete any orders from Supabase that were deleted
@@ -160,16 +160,30 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     try {
       const inventoryIds = data.inventory.map(f => f.id);
       if (inventoryIds.length > 0) {
-        const mappedInventory = data.inventory.map(f => ({
-          id: f.id,
-          user_id: userId,
-          name: f.name || '',
-          quantity: Number(f.quantity) || 0,
-          price: Number(f.price) || 0,
-          category: f.category || '',
-          image_url: f.imageUrl || f.image || '',
-          barcode: f.barcode || ''
-        }));
+        const mappedInventory = data.inventory.map(f => {
+          const metaPayload: Record<string, any> = {};
+          if (f.sourcingType) metaPayload.sourcingType = f.sourcingType;
+          if (f.supplierName) metaPayload.supplierName = f.supplierName;
+          if (f.catalogCode) metaPayload.catalogCode = f.catalogCode;
+          if (f.costPrice !== undefined) metaPayload.costPrice = f.costPrice;
+          if (f.season) metaPayload.season = f.season;
+          if (f.description) metaPayload.description = f.description;
+          
+          const packedBarcode = Object.keys(metaPayload).length > 0
+            ? JSON.stringify(metaPayload)
+            : (f.barcode || '');
+
+          return {
+            id: f.id,
+            user_id: userId,
+            name: f.name || '',
+            quantity: Number(f.quantity) || 0,
+            price: Number(f.price) || 0,
+            category: f.category || '',
+            image_url: f.imageUrl || f.image || '',
+            barcode: packedBarcode
+          };
+        });
         await supabase.from('inventory').upsert(mappedInventory);
 
         // Delete any fabrics from Supabase that were deleted
@@ -388,16 +402,29 @@ export async function syncWithServer(): Promise<StoreData> {
               tablesQueriedSuccessfully = true;
               cloudInventory = invRes.data
                 .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
-                .map((f: any) => ({
-                id: f.id,
-                name: f.name || '',
-                quantity: Number(f.quantity || 0),
-                price: Number(f.price || 0),
-                category: f.category || '',
-                imageUrl: f.image_url || f.imageUrl || '',
-                image: f.image_url || f.image || '',
-                barcode: f.barcode || ''
-              }));
+                .map((f: any) => {
+                  let parsedMeta: any = {};
+                  if (f.barcode && typeof f.barcode === 'string' && f.barcode.startsWith('{')) {
+                    try { parsedMeta = JSON.parse(f.barcode); } catch {}
+                  }
+
+                  return {
+                    id: f.id,
+                    name: f.name || '',
+                    quantity: Number(f.quantity || 0),
+                    price: Number(f.price || 0),
+                    category: f.category || '',
+                    imageUrl: f.image_url || f.imageUrl || '',
+                    image: f.image_url || f.image || '',
+                    barcode: f.barcode || '',
+                    season: parsedMeta.season || f.season || '',
+                    description: parsedMeta.description || f.description || '',
+                    sourcingType: parsedMeta.sourcingType || f.sourcingType || 'stock',
+                    supplierName: parsedMeta.supplierName || f.supplierName || '',
+                    catalogCode: parsedMeta.catalogCode || f.catalogCode || '',
+                    costPrice: Number(parsedMeta.costPrice ?? f.costPrice ?? 0)
+                  };
+                });
             }
 
             if (profRes && !(profRes as any).error && Array.isArray((profRes as any).data)) {
@@ -499,14 +526,16 @@ export async function syncWithServer(): Promise<StoreData> {
     const cloudTime = cloudSettings?.updatedAt || 0;
 
     let effectiveSettings: StoreSettings;
-    if (localCachedSettings && localTime > cloudTime) {
-      // Local settings are newer than cloud: retain local and push update to Supabase
+    if (localCachedSettings && localTime >= cloudTime && localTime > 0) {
+      // Local settings are newer or equal: retain local and push update to Supabase
       effectiveSettings = localCachedSettings;
-      persistStoreSettings(localCachedSettings).catch(() => {});
-    } else if (cloudSettings) {
+      if (localTime > cloudTime) {
+        persistStoreSettings(localCachedSettings).catch(() => {});
+      }
+    } else if (cloudSettings && cloudTime > 0) {
       effectiveSettings = cloudSettings;
     } else {
-      effectiveSettings = localCachedSettings || DEFAULT_STORE_SETTINGS;
+      effectiveSettings = localCachedSettings || cloudSettings || DEFAULT_STORE_SETTINGS;
     }
 
     cloudStore = {
@@ -851,20 +880,12 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
   if (supabase) {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id || '0843d2d4-0702-4ecf-800b-956155367d0a';
+      const userId = sessionData?.session?.user?.id || '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
 
-      // A. Direct UPDATE of __store_settings__ row in inventory table
-      const { error: updateErr } = await supabase
+      // A. Direct UPSERT of __store_settings__ row in inventory table
+      const { error: upsertErr } = await supabase
         .from('inventory')
-        .update({
-          image_url: JSON.stringify(merged),
-          name: 'إعدادات متجر نَسْجَة'
-        })
-        .eq('id', '__store_settings__');
-
-      // B. If update affected 0 rows or errored, upsert with full payload
-      if (updateErr) {
-        await supabase.from('inventory').upsert({
+        .upsert({
           id: '__store_settings__',
           user_id: userId,
           name: 'إعدادات متجر نَسْجَة',
@@ -872,7 +893,17 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
           quantity: 1,
           price: 0,
           image_url: JSON.stringify(merged)
-        });
+        }, { onConflict: 'id' });
+
+      // Fallback update if upsert had any issue
+      if (upsertErr) {
+        await supabase
+          .from('inventory')
+          .update({
+            image_url: JSON.stringify(merged),
+            name: 'إعدادات متجر نَسْجَة'
+          })
+          .eq('id', '__store_settings__');
       }
 
       // C. Also attempt store_settings table if it exists
@@ -914,7 +945,7 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await res.json();
-        if (data?.settings && (!data.settings.updatedAt || data.settings.updatedAt >= now)) {
+        if (data?.settings && data.settings.updatedAt && data.settings.updatedAt >= now) {
           merged = { ...merged, ...data.settings };
           cloudStore.settings = merged;
           if (typeof window !== 'undefined') {

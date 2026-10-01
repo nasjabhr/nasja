@@ -3,7 +3,7 @@ import {
   Plus, FileText, Phone, Trash2, CheckCircle2, Clock, Search, 
   MessageSquare, Eye, X, Printer, Download, Edit3, Calendar, 
   CreditCard, AlertTriangle, Filter, RotateCcw, ChevronDown,
-  Ruler, Layers, Minus, Sparkles, Check, Truck, User
+  Ruler, Layers, Minus, Sparkles, Check, Truck, User, BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
@@ -297,31 +297,35 @@ export default function Orders() {
       : selectedMeters;
 
     // CRITICAL: Strict stock verification if choosing a fabric from inventory
+    // CRITICAL: Strict stock verification if choosing physical fabric from inventory
     if (!customFabricMode && selectedFabricId && chosenFabric) {
-      const availableQty = Number(chosenFabric.quantity) || 0;
+      const isCatalog = chosenFabric.sourcingType === 'catalog' || Boolean(chosenFabric.supplierName);
+      if (!isCatalog) {
+        const availableQty = Number(chosenFabric.quantity) || 0;
 
-      if (modalMode === 'create') {
-        if (availableQty <= 0) {
-          setStockError(`عذراً، لا يمكن إتمام الطلب: قماش "${chosenFabric.name}" نفد من المخزون (0 متر متوفر).`);
-          return;
-        }
-        if (effectiveMeters > availableQty) {
-          setStockError(`عذراً، لا يمكن إتمام الطلب: الأمتار المطلوبة (${effectiveMeters} م) أكبر من المتوفر بالمخزون (${availableQty} م فقط).`);
-          return;
-        }
-        if (effectiveMeters <= 0) {
-          setStockError('يرجى إدخال عدد أمتار صحيح أكبر من الصفر.');
-          return;
-        }
-      } else if (modalMode === 'edit') {
-        // In edit mode, take into account already reserved meters
-        const prevOrder = orders.find(o => o.id === editingOrderId);
-        const prevMeters = (prevOrder?.fabricId === selectedFabricId) ? (prevOrder.fabricMeters || 0) : 0;
-        const totalEffective = availableQty + prevMeters;
+        if (modalMode === 'create') {
+          if (availableQty <= 0) {
+            setStockError(`عذراً، لا يمكن إتمام الطلب: قماش "${chosenFabric.name}" نفد من المخزون (0 متر متوفر).`);
+            return;
+          }
+          if (effectiveMeters > availableQty) {
+            setStockError(`عذراً، لا يمكن إتمام الطلب: الأمتار المطلوبة (${effectiveMeters} م) أكبر من المتوفر بالمخزون (${availableQty} م فقط).`);
+            return;
+          }
+          if (effectiveMeters <= 0) {
+            setStockError('يرجى إدخال عدد أمتار صحيح أكبر من الصفر.');
+            return;
+          }
+        } else if (modalMode === 'edit') {
+          // In edit mode, take into account already reserved meters
+          const prevOrder = orders.find(o => o.id === editingOrderId);
+          const prevMeters = (prevOrder?.fabricId === selectedFabricId) ? (prevOrder.fabricMeters || 0) : 0;
+          const totalEffective = availableQty + prevMeters;
 
-        if (effectiveMeters > totalEffective) {
-          setStockError(`عذراً، لا يمكن إتمام التعديل: الأمتار المطلوبة (${effectiveMeters} م) تتجاوز الكمية المتوفرة (${totalEffective} م).`);
-          return;
+          if (effectiveMeters > totalEffective) {
+            setStockError(`عذراً، لا يمكن إتمام التعديل: الأمتار المطلوبة (${effectiveMeters} م) تتجاوز الكمية المتوفرة (${totalEffective} م).`);
+            return;
+          }
         }
       }
     } else if (!customFabricMode && availableFabrics.length > 0 && !selectedFabricId) {
@@ -348,10 +352,13 @@ export default function Orders() {
           return { ...f, quantity: Math.max(0, currentQty - 1) };
         }
 
-        // 2. Deduct meters from selected fabric if applicable
+        // 2. Deduct meters from selected fabric if physical stock (not catalog)
         if (!customFabricMode && selectedFabricId && f.id === selectedFabricId) {
-          const newQty = Math.max(0, currentQty - effectiveMeters);
-          return { ...f, quantity: Math.round(newQty * 10) / 10 };
+          const isCatalog = f.sourcingType === 'catalog' || Boolean(f.supplierName);
+          if (!isCatalog) {
+            const newQty = Math.max(0, currentQty - effectiveMeters);
+            return { ...f, quantity: Math.round(newQty * 10) / 10 };
+          }
         }
 
         return f;
@@ -361,28 +368,31 @@ export default function Orders() {
       persistInventory(updatedFabrics).catch(() => {});
     } else if (modalMode === 'edit') {
       if (!customFabricMode && selectedFabricId && chosenFabric) {
-        const prevOrder = orders.find(o => o.id === editingOrderId);
-        // If order had a previous fabric, restore its meters first
-        if (prevOrder?.fabricId) {
+        const isCatalog = chosenFabric.sourcingType === 'catalog' || Boolean(chosenFabric.supplierName);
+        if (!isCatalog) {
+          const prevOrder = orders.find(o => o.id === editingOrderId);
+          // If order had a previous fabric, restore its meters first
+          if (prevOrder?.fabricId) {
+            updatedFabrics = updatedFabrics.map(f => {
+              if (f.id === prevOrder.fabricId) {
+                const restored = (Number(f.quantity) || 0) + (prevOrder.fabricMeters || 0);
+                return { ...f, quantity: Math.round(restored * 10) / 10 };
+              }
+              return f;
+            });
+          }
+          // Deduct new meters
           updatedFabrics = updatedFabrics.map(f => {
-            if (f.id === prevOrder.fabricId) {
-              const restored = (Number(f.quantity) || 0) + (prevOrder.fabricMeters || 0);
-              return { ...f, quantity: Math.round(restored * 10) / 10 };
+            if (f.id === selectedFabricId) {
+              const newQty = Math.max(0, (Number(f.quantity) || 0) - effectiveMeters);
+              return { ...f, quantity: Math.round(newQty * 10) / 10 };
             }
             return f;
           });
-        }
-        // Deduct new meters
-        updatedFabrics = updatedFabrics.map(f => {
-          if (f.id === selectedFabricId) {
-            const newQty = Math.max(0, (Number(f.quantity) || 0) - effectiveMeters);
-            return { ...f, quantity: Math.round(newQty * 10) / 10 };
-          }
-          return f;
-        });
 
-        setFabrics(updatedFabrics);
-        persistInventory(updatedFabrics).catch(() => {});
+          setFabrics(updatedFabrics);
+          persistInventory(updatedFabrics).catch(() => {});
+        }
       }
     }
 
@@ -496,48 +506,26 @@ export default function Orders() {
     saveOrders(updated);
   };
 
-  const generatePDF = (order: Order) => {
-    const doc = new jsPDF();
-    const { dateStr, timeStr } = formatDateTime(order.createdAt);
-    
-    doc.setFontSize(20);
-    doc.setTextColor(29, 58, 48); // #1D3A30
-    doc.text("فاتورة مبيعات - نَسْجَة للأقمشة", 105, 20, { align: "center" });
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`التاريخ: ${dateStr} - ${timeStr}`, 20, 35);
-    doc.text(`رقم الفاتورة: #${order.id}`, 20, 42);
-    
-    doc.setFontSize(12);
-    doc.setTextColor(20);
-    doc.text(`العميل: ${order.customerName}`, 20, 55);
-    doc.text(`الهاتف: ${order.phone || '-'}`, 20, 62);
-    doc.text(`حالة الطلب: ${order.status || 'قيد التجهيز'}`, 20, 69);
-    doc.text(`حالة الدفع: ${order.paymentStatus || 'تم الدفع'}`, 20, 76);
-    doc.text(`طريقة الدفع: ${order.paymentMethod || 'بنفت بي'}`, 20, 83);
-    
-    (doc as any).autoTable({
-      startY: 91,
-      headStyles: { fillColor: [29, 58, 48], textColor: [232, 213, 168] },
-      head: [['بيان القماش / تفاصيل الطلب', 'المبلغ (د.ب)']],
-      body: [
-        [order.details, `${order.price.toFixed(2)} د.ب`]
-      ],
-    });
-    
-    const finalY = (doc as any).lastAutoTable?.finalY || 110;
-    doc.setFontSize(13);
-    doc.setTextColor(29, 58, 48);
-    doc.text(`المجموع المطلوب: ${order.price.toFixed(2)} د.ب`, 190, finalY + 15, { align: 'right' });
-
-    if (order.notes) {
-      doc.setFontSize(10);
-      doc.setTextColor(120);
-      doc.text(`ملاحظات: ${order.notes}`, 20, finalY + 25);
+  const generatePDF = async (order: Order) => {
+    const element = document.getElementById('printable-invoice');
+    if (element) {
+      try {
+        const html2canvasModule = await import('html2canvas');
+        const html2canvas = html2canvasModule.default;
+        const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+        const imgData = canvas.toDataURL('image/png');
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const imgWidth = 140;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        const x = (210 - imgWidth) / 2;
+        doc.addImage(imgData, 'PNG', x, 20, imgWidth, imgHeight);
+        doc.save(`فاتورة_${order.customerName || 'عميل'}_${order.id}.pdf`);
+        return;
+      } catch (err) {
+        console.warn('html2canvas PDF generation note:', err);
+      }
     }
-
-    doc.save(`فاتورة_${order.customerName}_${order.id}.pdf`);
+    window.print();
   };
 
   // Filter logic with custom date range and payment status
@@ -937,6 +925,28 @@ export default function Orders() {
                     )}
                   </div>
 
+                  {/* Fabric Sourcing Info on Order Card */}
+                  {order.fabricId && (() => {
+                    const linked = fabrics.find(f => f.id === order.fabricId);
+                    if (!linked) return null;
+                    const isCat = linked.sourcingType === 'catalog' || Boolean(linked.supplierName);
+                    return (
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        {isCat ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#FAF7F0] text-[#1D3A30] border border-[#C7B895]/50">
+                            <BookOpen className="w-3 h-3 text-[#C7B895]" />
+                            <span>شراء من المحل: {linked.supplierName || 'غير محدد'} {linked.catalogCode ? `• كود: ${linked.catalogCode}` : ''}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-100 text-[#1D3A30]/80 border border-stone-200">
+                            <Layers className="w-3 h-3 text-[#A99872]" />
+                            <span>من المخزون ({order.fabricMeters || 3.5} م)</span>
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {order.notes && (
                     <p className="text-[10px] bg-[#FAF7F0] text-[#1D3A30] p-1.5 rounded-lg mt-1.5 border border-[#C7B895]/30">
                       ملاحظة: {order.notes}
@@ -1177,13 +1187,17 @@ export default function Orders() {
                                       <div className="absolute bottom-1 right-1 left-1">
                                         <span className={cn(
                                           "block text-center text-[9px] font-bold py-0.5 px-1 rounded backdrop-blur-xs font-mono",
-                                          isOutOfStock
+                                          (f.sourcingType === 'catalog' || Boolean(f.supplierName))
+                                            ? "bg-[#1D3A30]/90 text-[#E8D5A8]"
+                                            : isOutOfStock
                                             ? "bg-red-500/90 text-white"
                                             : isSelected
                                             ? "bg-[#FAF7F0]/95 text-[#1D3A30]"
                                             : "bg-[#1D3A30]/85 text-[#FAF7F0]"
                                         )}>
-                                          {isOutOfStock ? 'نفد المخزون' : `${qty} م متوفر`}
+                                          {(f.sourcingType === 'catalog' || Boolean(f.supplierName))
+                                            ? 'بالطلب (دفتر)'
+                                            : (isOutOfStock ? 'نفد المخزون' : `${qty} م متوفر`)}
                                         </span>
                                       </div>
                                     </div>
@@ -1215,9 +1229,10 @@ export default function Orders() {
                       {selectedFabricId && (() => {
                         const selectedFabric = fabrics.find(f => f.id === selectedFabricId);
                         if (!selectedFabric) return null;
+                        const isCatalog = selectedFabric.sourcingType === 'catalog' || Boolean(selectedFabric.supplierName);
                         const availableQty = Number(selectedFabric.quantity) || 0;
-                        const isInsufficient = selectedMeters > availableQty;
-                        const isOut = availableQty <= 0;
+                        const isInsufficient = !isCatalog && selectedMeters > availableQty;
+                        const isOut = !isCatalog && availableQty <= 0;
 
                         return (
                           <motion.div
@@ -1232,9 +1247,16 @@ export default function Orders() {
                                   عدد الأمتار المطلوبة من قماش ({selectedFabric.name}):
                                 </span>
                               </div>
-                              <span className="text-[11px] font-mono font-bold text-[#A99872]">
-                                المتوفر: {availableQty} م
-                              </span>
+                              {isCatalog ? (
+                                <span className="text-[10px] font-bold text-[#1D3A30] bg-[#FAF7F0] border border-[#C7B895]/50 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                  <BookOpen className="w-3 h-3 text-[#C7B895]" />
+                                  <span>شراء من: {selectedFabric.supplierName || 'المحل'} {selectedFabric.catalogCode ? `• كود: ${selectedFabric.catalogCode}` : ''}</span>
+                                </span>
+                              ) : (
+                                <span className="text-[11px] font-mono font-bold text-[#A99872]">
+                                  المتوفر: {availableQty} م
+                                </span>
+                              )}
                             </div>
 
                             {/* Meter Stepper & Quick Pills (Supports half fractions like 22.5) */}
@@ -1600,6 +1622,7 @@ export default function Orders() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
+              id="printable-invoice"
               className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl z-10 overflow-hidden flex flex-col p-5 border border-[#C7B895]/40"
             >
               <div className="flex justify-between items-center pb-3 border-b border-[#C7B895]/20">

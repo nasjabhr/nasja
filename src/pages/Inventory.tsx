@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Fabric, CRITICAL_FABRIC_THRESHOLD } from '../types';
-import { Plus, AlertCircle, Image as ImageIcon, Upload, Trash2, Edit3, Search, X } from 'lucide-react';
+import { Fabric, CRITICAL_FABRIC_THRESHOLD, SourcingType } from '../types';
+import { Plus, AlertCircle, Image as ImageIcon, Upload, Trash2, Edit3, Search, X, BookOpen, Package, Check, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { persistInventory, deleteFabricPermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED } from '../lib/dataService';
 
@@ -17,9 +17,25 @@ export default function Inventory() {
     imageUrl: string;
     season?: string;
     description?: string;
-  }>({ name: '', quantity: 22.5, price: 0, imageUrl: '', season: 'صيفي', description: '' });
+    sourcingType?: SourcingType;
+    supplierName?: string;
+    catalogCode?: string;
+    costPrice?: number | string;
+  }>({
+    name: '',
+    quantity: 22.5,
+    price: '',
+    imageUrl: '',
+    season: 'صيفي',
+    description: '',
+    sourcingType: 'catalog',
+    supplierName: '',
+    catalogCode: '',
+    costPrice: ''
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'أقمشة' | 'تغليف'>('أقمشة');
+  const [sourcingFilter, setSourcingFilter] = useState<'all' | 'catalog' | 'stock'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -103,10 +119,14 @@ export default function Inventory() {
     setNewFabric({
       name: '',
       quantity: activeTab === 'أقمشة' ? 22.5 : 10,
-      price: 0,
+      price: '',
       imageUrl: '',
       season: 'صيفي',
-      description: ''
+      description: '',
+      sourcingType: 'catalog',
+      supplierName: '',
+      catalogCode: '',
+      costPrice: ''
     });
     setShowModal(true);
   };
@@ -114,13 +134,18 @@ export default function Inventory() {
   const openEditModal = (item: Fabric) => {
     setModalMode('edit');
     setEditingItem(item);
+    const itemSourcing = item.sourcingType || (item.supplierName ? 'catalog' : 'stock');
     setNewFabric({
       name: item.name,
       quantity: item.quantity,
-      price: item.price,
+      price: item.price || '',
       imageUrl: item.imageUrl || item.image || '',
       season: item.season || 'صيفي',
-      description: item.description || ''
+      description: item.description || '',
+      sourcingType: itemSourcing,
+      supplierName: item.supplierName || '',
+      catalogCode: item.catalogCode || '',
+      costPrice: item.costPrice || ''
     });
     setShowModal(true);
   };
@@ -129,24 +154,36 @@ export default function Inventory() {
     e.preventDefault();
     if (!newFabric.name.trim()) return;
     
+    const isFabric = activeTab === 'أقمشة';
+    const isCatalog = isFabric && newFabric.sourcingType === 'catalog';
+
     const qtyNum = parseFloat(String(newFabric.quantity));
     const priceNum = parseFloat(String(newFabric.price));
-    // Calculate in whole and half meters only without quarters or random fractions
-    const cleanQty = !isNaN(qtyNum) ? (activeTab === 'أقمشة' ? Math.round(qtyNum * 2) / 2 : Math.round(qtyNum)) : 0;
-    // Price is strictly for fabrics - packaging has NO piece price
-    const cleanPrice = activeTab === 'أقمشة' ? (!isNaN(priceNum) ? Math.round(priceNum * 100) / 100 : 0) : 0;
+    const costNum = parseFloat(String(newFabric.costPrice || 0));
+
+    const cleanQty = isCatalog ? 999 : (!isNaN(qtyNum) ? (isFabric ? Math.round(qtyNum * 2) / 2 : Math.round(qtyNum)) : 0);
+    const cleanPrice = isFabric ? (!isNaN(priceNum) ? Math.round(priceNum * 100) / 100 : 0) : 0;
+    const cleanCost = !isNaN(costNum) && costNum >= 0 ? Math.round(costNum * 100) / 100 : undefined;
+
+    const fabricPayload: Partial<Fabric> = {
+      name: newFabric.name.trim(),
+      quantity: cleanQty,
+      price: cleanPrice,
+      imageUrl: newFabric.imageUrl || undefined,
+      season: isFabric ? (newFabric.season || 'صيفي') : undefined,
+      description: newFabric.description?.trim() || undefined,
+      sourcingType: isFabric ? (newFabric.sourcingType || 'catalog') : undefined,
+      supplierName: isCatalog ? (newFabric.supplierName?.trim() || undefined) : undefined,
+      catalogCode: isCatalog ? (newFabric.catalogCode?.trim() || undefined) : undefined,
+      costPrice: isCatalog ? cleanCost : undefined
+    };
 
     if (modalMode === 'edit' && editingItem) {
       const updated = inventory.map(item => {
         if (item.id === editingItem.id) {
           return {
             ...item,
-            name: newFabric.name.trim(),
-            quantity: cleanQty,
-            price: activeTab === 'أقمشة' ? cleanPrice : 0,
-            imageUrl: newFabric.imageUrl || undefined,
-            season: activeTab === 'أقمشة' ? (newFabric.season || 'صيفي') : undefined,
-            description: newFabric.description?.trim() || undefined
+            ...fabricPayload
           };
         }
         return item;
@@ -155,13 +192,17 @@ export default function Inventory() {
     } else {
       const fabricItem: Fabric = {
         id: Date.now().toString(),
-        name: newFabric.name.trim(),
-        quantity: cleanQty,
-        price: activeTab === 'أقمشة' ? cleanPrice : 0,
-        imageUrl: newFabric.imageUrl || undefined,
+        name: fabricPayload.name!,
+        quantity: fabricPayload.quantity!,
+        price: fabricPayload.price!,
+        imageUrl: fabricPayload.imageUrl,
         category: activeTab,
-        season: activeTab === 'أقمشة' ? (newFabric.season || 'صيفي') : undefined,
-        description: newFabric.description?.trim() || undefined
+        season: fabricPayload.season,
+        description: fabricPayload.description,
+        sourcingType: fabricPayload.sourcingType,
+        supplierName: fabricPayload.supplierName,
+        catalogCode: fabricPayload.catalogCode,
+        costPrice: fabricPayload.costPrice
       };
       const newInventory = [fabricItem, ...inventory];
       saveInventory(newInventory);
@@ -169,7 +210,18 @@ export default function Inventory() {
 
     setShowModal(false);
     setEditingItem(null);
-    setNewFabric({ name: '', quantity: 22.5, price: 0, imageUrl: '', season: 'صيفي', description: '' });
+    setNewFabric({
+      name: '',
+      quantity: 22.5,
+      price: '',
+      imageUrl: '',
+      season: 'صيفي',
+      description: '',
+      sourcingType: 'catalog',
+      supplierName: '',
+      catalogCode: '',
+      costPrice: ''
+    });
   };
 
   const [editingFabricId, setEditingFabricId] = useState<string | null>(null);
@@ -206,18 +258,26 @@ export default function Inventory() {
 
   const activeInventory = inventory.filter(item => {
     const itemCategory = item.category || 'أقمشة';
-    return itemCategory === activeTab;
+    if (itemCategory !== activeTab) return false;
+    if (activeTab === 'أقمشة' && sourcingFilter !== 'all') {
+      const isItemCatalog = item.sourcingType === 'catalog' || Boolean(item.supplierName);
+      if (sourcingFilter === 'catalog') return isItemCatalog;
+      if (sourcingFilter === 'stock') return !isItemCatalog;
+    }
+    return true;
   });
 
   const filteredInventory = activeInventory.filter(item => 
-    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (item.supplierName && item.supplierName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (item.catalogCode && item.catalogCode.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const totalMeters = Math.round(activeInventory.reduce((acc, f) => acc + (Number(f.quantity) || 0), 0) * 10) / 10;
-  const lowStockCount = activeInventory.filter(f => {
-    const q = Number(f.quantity) || 0;
-    return activeTab === 'تغليف' ? q <= 10 : q < CRITICAL_FABRIC_THRESHOLD;
-  }).length;
+  const fabricsOnly = inventory.filter(f => !f.category || f.category === 'أقمشة');
+  const catalogCount = fabricsOnly.filter(f => f.sourcingType === 'catalog' || Boolean(f.supplierName)).length;
+  const stockCount = fabricsOnly.filter(f => f.sourcingType !== 'catalog' && !f.supplierName).length;
+  const stockMeters = Math.round(fabricsOnly.filter(f => f.sourcingType !== 'catalog' && !f.supplierName).reduce((acc, f) => acc + (Number(f.quantity) || 0), 0) * 10) / 10;
+  const packagingTotal = inventory.filter(f => f.category === 'تغليف').reduce((acc, f) => acc + (Number(f.quantity) || 0), 0);
 
   return (
     <div className="space-y-3.5 pb-6">
@@ -226,7 +286,9 @@ export default function Inventory() {
         <div>
           <h1 className="text-base font-extrabold text-[#1D3A30]">المخزون</h1>
           <p className="text-[11px] text-[#1D3A30]/70 font-medium">
-            {activeInventory.length} {activeTab === 'أقمشة' ? 'أصناف قماش' : 'مواد تغليف'} • {totalMeters} {activeTab === 'أقمشة' ? 'متر' : 'قطعة'}
+            {activeTab === 'أقمشة' 
+              ? `${catalogCount} بالطلب من الدفاتر • ${stockCount} بالمخزون الفعلي (${stockMeters} م)`
+              : `${activeInventory.length} مواد تغليف • ${packagingTotal} قطعة`}
           </p>
         </div>
         <button
@@ -238,19 +300,19 @@ export default function Inventory() {
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Main Tabs */}
       <div className="flex items-center gap-1.5 bg-[#FAF7F0] p-1 rounded-2xl border border-[#C7B895]/30">
         <button
-          onClick={() => setActiveTab('أقمشة')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+          onClick={() => { setActiveTab('أقمشة'); setSourcingFilter('all'); }}
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer ${
             activeTab === 'أقمشة' ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs' : 'text-[#1D3A30]/60 hover:text-[#1D3A30]'
           }`}
         >
-          الأقمشة
+          الأقمشة ({fabricsOnly.length})
         </button>
         <button
           onClick={() => setActiveTab('تغليف')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition ${
+          className={`flex-1 py-2 text-xs font-bold rounded-xl transition cursor-pointer ${
             activeTab === 'تغليف' ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs' : 'text-[#1D3A30]/60 hover:text-[#1D3A30]'
           }`}
         >
@@ -258,12 +320,53 @@ export default function Inventory() {
         </button>
       </div>
 
+      {/* Sub-Filter for Fabrics: All vs Catalog vs Stock */}
+      {activeTab === 'أقمشة' && (
+        <div className="flex items-center gap-1.5 p-1 bg-white rounded-xl border border-[#C7B895]/30 text-xs">
+          <button
+            type="button"
+            onClick={() => setSourcingFilter('all')}
+            className={`flex-1 py-1.5 rounded-lg font-bold transition text-center cursor-pointer ${
+              sourcingFilter === 'all'
+                ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs'
+                : 'text-[#1D3A30]/70 hover:text-[#1D3A30]'
+            }`}
+          >
+            الكل ({fabricsOnly.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourcingFilter('catalog')}
+            className={`flex-1 py-1.5 rounded-lg font-bold transition text-center flex items-center justify-center gap-1 cursor-pointer ${
+              sourcingFilter === 'catalog'
+                ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs'
+                : 'text-[#1D3A30]/70 hover:text-[#1D3A30]'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5 text-[#C7B895]" />
+            <span>دفاتر الأقمشة ({catalogCount})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSourcingFilter('stock')}
+            className={`flex-1 py-1.5 rounded-lg font-bold transition text-center flex items-center justify-center gap-1 cursor-pointer ${
+              sourcingFilter === 'stock'
+                ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs'
+                : 'text-[#1D3A30]/70 hover:text-[#1D3A30]'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5 text-[#C7B895]" />
+            <span>مخزون فعلي ({stockCount})</span>
+          </button>
+        </div>
+      )}
+
       {/* Search Input */}
       <div className="relative">
         <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-[#1D3A30]/40" />
         <input
           type="text"
-          placeholder={activeTab === 'أقمشة' ? "بحث في الأقمشة..." : "بحث في مواد التغليف..."}
+          placeholder={activeTab === 'أقمشة' ? "بحث بالاسم، اسم المحل، أو كود الدفتر..." : "بحث في مواد التغليف..."}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full bg-white pr-9 pl-8 py-2.5 text-xs rounded-xl border border-[#C7B895]/30 text-[#1D3A30] placeholder-[#1D3A30]/40 focus:outline-none focus:ring-1 focus:ring-[#1D3A30]"
@@ -291,12 +394,12 @@ export default function Inventory() {
             {searchQuery 
               ? 'لا توجد نتائج تطابق البحث' 
               : activeTab === 'أقمشة' 
-                ? 'ابدأ بإضافة أول صنف قماش لإدارة المخزون'
+                ? 'ابدأ بإضافة أول صنف من دفتر الأقمشة أو المخزون'
                 : 'ابدأ بإضافة أول مادة تغليف لمتابعة المخزون'}
           </p>
           <button
             onClick={() => setShowModal(true)}
-            className="mt-4 bg-[#1D3A30] text-[#E8D5A8] text-xs font-bold px-4 py-2.5 rounded-xl border border-[#C7B895]/40"
+            className="mt-4 bg-[#1D3A30] text-[#E8D5A8] text-xs font-bold px-4 py-2.5 rounded-xl border border-[#C7B895]/40 cursor-pointer"
           >
             {activeTab === 'أقمشة' ? '+ إضافة صنف قماش' : '+ إضافة مادة تغليف'}
           </button>
@@ -304,7 +407,9 @@ export default function Inventory() {
       ) : (
         <div className="flex flex-col gap-2">
           {filteredInventory.map(item => {
-            const isLow = item.category === 'تغليف' ? (Number(item.quantity) || 0) <= 10 : (Number(item.quantity) || 0) < CRITICAL_FABRIC_THRESHOLD;
+            const isFabric = !item.category || item.category === 'أقمشة';
+            const isCatalogItem = isFabric && (item.sourcingType === 'catalog' || Boolean(item.supplierName));
+            const isLow = !isCatalogItem && (item.category === 'تغليف' ? (Number(item.quantity) || 0) <= 10 : (Number(item.quantity) || 0) < CRITICAL_FABRIC_THRESHOLD);
             const isEditing = editingFabricId === item.id;
             const unitLabel = (item.category === 'تغليف') ? 'قطعة' : 'متر';
 
@@ -332,17 +437,42 @@ export default function Inventory() {
                       <h3 className="font-bold text-xs sm:text-sm text-[#1D3A30] truncate">
                         {item.name}
                       </h3>
-                      {isLow && (
+                      {isCatalogItem ? (
+                        <span className="text-[9px] font-bold text-[#1D3A30] bg-[#FAF7F0] border border-[#C7B895]/50 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                          <BookOpen className="w-2.5 h-2.5 text-[#C7B895]" />
+                          <span>دفتر بالطلب</span>
+                        </span>
+                      ) : isLow ? (
                         <span className="text-[9px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded-md">
                           منخفض
                         </span>
-                      )}
+                      ) : null}
                     </div>
-                    {item.category !== 'تغليف' && (
-                      <p className="text-[11px] font-bold text-[#A99872] font-mono mt-0.5">
-                        {item.price} د.ب <span className="text-[9px] font-normal text-[#1D3A30]/60">/ {unitLabel}</span>
-                      </p>
+
+                    {/* Sourcing details if catalog item */}
+                    {isCatalogItem ? (
+                      <div className="mt-0.5 space-y-0.5">
+                        <p className="text-[10px] text-[#1D3A30]/75">
+                          المحل: <span className="font-bold text-[#1D3A30]">{item.supplierName || 'غير محدد'}</span>
+                          {item.catalogCode && <> • كود: <span className="font-mono font-bold text-[#1D3A30]">{item.catalogCode}</span></>}
+                        </p>
+                        <p className="text-[10px] font-mono font-bold text-[#1D3A30]">
+                          البيع: <span className="text-[#A99872]">{item.price.toFixed(2)} د.ب</span>
+                          {item.costPrice !== undefined && item.costPrice > 0 && (
+                            <> • التكلفة: <span className="text-[#1D3A30]/60">{item.costPrice.toFixed(2)} د.ب</span>
+                            {' '}• <span className="text-emerald-700">ربح: +{(item.price - item.costPrice).toFixed(2)} د.ب</span>
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    ) : (
+                      item.category !== 'تغليف' && (
+                        <p className="text-[11px] font-bold text-[#A99872] font-mono mt-0.5">
+                          {item.price.toFixed(2)} د.ب <span className="text-[9px] font-normal text-[#1D3A30]/60">/ {unitLabel}</span>
+                        </p>
+                      )
                     )}
+
                     {item.description && (
                       <p className="text-[10px] text-[#1D3A30]/60 truncate mt-0.5 max-w-[140px] sm:max-w-[220px]">
                         {item.description}
@@ -351,10 +481,14 @@ export default function Inventory() {
                   </div>
                 </div>
 
-                {/* Left: Quantity Badge + Edit / Delete Actions */}
+                {/* Left: Quantity / Availability Badge + Actions */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {/* Quantity Badge */}
-                  {isEditing ? (
+                  {isCatalogItem ? (
+                    <div className="px-2 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
+                      <span>متوفر بالطلب</span>
+                    </div>
+                  ) : isEditing ? (
                     <div className="flex items-center gap-1">
                       <input
                         type="number"
@@ -443,23 +577,59 @@ export default function Inventory() {
                   <h3 className="text-sm font-bold text-[#FAF7F0]">
                     {modalMode === 'edit'
                       ? (activeTab === 'أقمشة' ? 'تعديل بيانات القماش' : 'تعديل بيانات مادة التغليف')
-                      : (activeTab === 'أقمشة' ? 'إضافة نوع قماش جديد' : 'إضافة مادة تغليف جديدة')}
+                      : (activeTab === 'أقمشة' ? 'إضافة صنف قماش جديد' : 'إضافة مادة تغليف جديدة')}
                   </h3>
                   <p className="text-[10px] text-[#E8D5A8]">
-                    {modalMode === 'edit'
-                      ? (activeTab === 'أقمشة' ? 'تعديل الاسم والكمية المتوفرة وسعر المتر والصورة' : 'تعديل الاسم والكمية المتوفرة بالعدد')
-                      : (activeTab === 'أقمشة' ? 'تحديد السعر والكمية بالمتر والصورة' : 'تحديد الكمية المتوفرة بالعدد/القطع (أكياس، بوكسات، شرائط)')}
+                    {activeTab === 'أقمشة' 
+                      ? 'يمكنك إضافة قماش بالطلب من دفتر محل، أو مخزون فعلي بالأمتار'
+                      : 'تحديد الكمية المتوفرة بالعدد/القطع (أكياس، علب، شرائط)'}
                   </p>
                 </div>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="p-1.5 rounded-lg bg-white/10 text-[#E8D5A8] hover:text-white"
+                  className="p-1.5 rounded-lg bg-white/10 text-[#E8D5A8] hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <form onSubmit={handleSaveFabric} className="flex-1 overflow-y-auto p-4 space-y-3 text-xs no-scrollbar">
+                
+                {/* Fabric Sourcing Mode Toggle (Only for fabrics) */}
+                {activeTab === 'أقمشة' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-[#1D3A30] mb-1.5">
+                      نوع وطريقة توفير القماش *
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 p-1 bg-[#FAF7F0] rounded-xl border border-[#C7B895]/40">
+                      <button
+                        type="button"
+                        onClick={() => setNewFabric({ ...newFabric, sourcingType: 'catalog' })}
+                        className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          newFabric.sourcingType === 'catalog'
+                            ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs'
+                            : 'text-[#1D3A30]/70 hover:text-[#1D3A30]'
+                        }`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span>دفتر قماش (بالطلب من المحل)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewFabric({ ...newFabric, sourcingType: 'stock' })}
+                        className={`py-2 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          newFabric.sourcingType === 'stock'
+                            ? 'bg-[#1D3A30] text-[#E8D5A8] shadow-xs'
+                            : 'text-[#1D3A30]/70 hover:text-[#1D3A30]'
+                        }`}
+                      >
+                        <Package className="w-3.5 h-3.5" />
+                        <span>مخزون فعلي (بالأمتار)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
                     {activeTab === 'أقمشة' ? 'اسم القماش *' : 'اسم مادة التغليف *'}
@@ -467,18 +637,99 @@ export default function Inventory() {
                   <input
                     type="text"
                     required
-                    placeholder={activeTab === 'أقمشة' ? 'مثال: قطن ياباني تويوبو، سلك زبدة كوري، شكسبير إنجليزي، صوف...' : 'مثال: أكياس ورقية فاخرة، بوكسات هدايا، أشرطة تغليف، كروت إهداء...'}
+                    placeholder={activeTab === 'أقمشة' ? 'مثال: قطن كوري، صوف مخلوط، ياباني واقف...' : 'مثال: أكياس ورقية، علب هدايا، كروت إهداء...'}
                     value={newFabric.name}
                     onChange={(e) => setNewFabric({ ...newFabric, name: e.target.value })}
                     className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
                   />
                 </div>
 
-                {activeTab === 'أقمشة' ? (
+                {/* Sourcing Details (When Catalog Sourcing) */}
+                {activeTab === 'أقمشة' && newFabric.sourcingType === 'catalog' ? (
+                  <div className="space-y-2.5 p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-[#1D3A30]">
+                      <span>بيانات المحل والشراء (لتوفيره فور وصول أي طلب)</span>
+                      <span className="text-[10px] text-[#A99872]">خاص بك ولا يظهر للزبون</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#1D3A30] mb-1">
+                          اسم المحل أو المورد *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="مثال: محل كاكولي، الخواجة..."
+                          value={newFabric.supplierName || ''}
+                          onChange={(e) => setNewFabric({ ...newFabric, supplierName: e.target.value })}
+                          className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] bg-white text-xs text-[#1D3A30]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#1D3A30] mb-1">
+                          رقم أو كود العينة في الدفتر *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="مثال: دفتر 2 - عينة 14"
+                          value={newFabric.catalogCode || ''}
+                          onChange={(e) => setNewFabric({ ...newFabric, catalogCode: e.target.value })}
+                          className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] bg-white text-xs text-[#1D3A30]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#1D3A30] mb-1">
+                          سعر الشراء من المحل (التكلفة د.ب)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          value={newFabric.costPrice}
+                          onChange={(e) => setNewFabric({ ...newFabric, costPrice: e.target.value })}
+                          className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] bg-white text-xs font-bold font-mono text-[#1D3A30]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-[#1D3A30] mb-1">
+                          سعر البيع للزبون (د.ب للمتر) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          required
+                          placeholder="0.00"
+                          value={newFabric.price}
+                          onChange={(e) => setNewFabric({ ...newFabric, price: e.target.value })}
+                          className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] bg-white text-xs font-bold font-mono text-[#1D3A30]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Live Profit Margin Calculator */}
+                    {Number(newFabric.price) > 0 && Number(newFabric.costPrice) > 0 && (
+                      <div className="p-2 rounded-xl bg-white border border-emerald-200 flex items-center justify-between text-xs font-bold">
+                        <span className="text-emerald-800">صافي ربحك في المتر:</span>
+                        <span className="font-mono text-emerald-700">
+                          +{(Number(newFabric.price) - Number(newFabric.costPrice)).toFixed(2)} د.ب
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : activeTab === 'أقمشة' ? (
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                        الكمية بالمتر (بالمتر ونصف المتر) *
+                        الكمية المتوفرة بالمتر *
                       </label>
                       <input
                         type="number"
@@ -502,7 +753,7 @@ export default function Inventory() {
                         required
                         placeholder="0.00"
                         value={newFabric.price}
-                        onChange={(e) => setNewFabric({ ...newFabric, price: Number(e.target.value) })}
+                        onChange={(e) => setNewFabric({ ...newFabric, price: e.target.value })}
                         className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs font-bold font-mono text-[#1D3A30]"
                       />
                     </div>
@@ -525,15 +776,15 @@ export default function Inventory() {
                   </div>
                 )}
 
-                {/* Additional Product Info (معلومات إضافية للمنتج) */}
+                {/* Additional Info */}
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1 flex items-center justify-between">
-                    <span>{activeTab === 'أقمشة' ? 'معلومات ومواصفات إضافية للمنتج (اختياري)' : 'معلومات إضافية (اختياري)'}</span>
+                    <span>{activeTab === 'أقمشة' ? 'مواصفات وملاحظات القماش (اختياري)' : 'ملاحظات إضافية (اختياري)'}</span>
                     <span className="text-[10px] text-[#A99872]">تظهر في تفاصيل القماش بالمتجر</span>
                   </label>
                   <textarea
                     rows={2}
-                    placeholder={activeTab === 'أقمشة' ? 'مثال: صناعة يابانية فاخرة، ملمس ناعم واقف، رزة ممتازة، بارد ومريح ومقاوم للتجعد...' : 'مواصفات أو مقاسات إضافية...'}
+                    placeholder={activeTab === 'أقمشة' ? 'مثال: قماش صيفي خفيف، ناعم ومريح وبارد...' : 'مواصفات أو مقاسات إضافية...'}
                     value={newFabric.description || ''}
                     onChange={(e) => setNewFabric({ ...newFabric, description: e.target.value })}
                     className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30] resize-none placeholder:text-[#1D3A30]/35"
@@ -543,7 +794,7 @@ export default function Inventory() {
                 {activeTab === 'أقمشة' && (
                   <div>
                     <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                      موسم القماش (للتصنيف في قائمة المتجر لخيارات المواسم)
+                      موسم القماش (للتصنيف في قائمة المتجر)
                     </label>
                     <div className="grid grid-cols-4 gap-1.5">
                       {[
@@ -587,7 +838,7 @@ export default function Inventory() {
                       <button
                         type="button"
                         onClick={() => setNewFabric({ ...newFabric, imageUrl: '' })}
-                        className="absolute top-2 left-2 bg-rose-600 text-white p-1 rounded-lg"
+                        className="absolute top-2 left-2 bg-rose-600 text-white p-1 rounded-lg cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -596,7 +847,7 @@ export default function Inventory() {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-4 border-2 border-dashed border-[#C7B895]/40 rounded-xl flex flex-col items-center justify-center gap-1 hover:bg-[#FAF7F0] transition text-[#1D3A30]"
+                      className="w-full py-4 border-2 border-dashed border-[#C7B895]/40 rounded-xl flex flex-col items-center justify-center gap-1 hover:bg-[#FAF7F0] transition text-[#1D3A30] cursor-pointer"
                     >
                       <Upload className="w-5 h-5 opacity-60 text-[#A99872]" />
                       <span className="text-[11px] font-medium">التقاط أو اختيار صورة من الهاتف</span>
