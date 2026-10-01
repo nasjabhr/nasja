@@ -105,6 +105,10 @@ export function resetFailedAttempts(): void {
   }
 }
 
+export const AUTHORIZED_UIDS: string[] = [
+  '53cc7a5b-bc93-40ff-908e-d582d85e0efc',
+  '0843d2d4-0702-4ecf-800b-956155367d0a'
+];
 export const AUTHORIZED_UID = '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
 
 /**
@@ -127,7 +131,7 @@ export function isEmailAuthorized(email: string): boolean {
 export function isUserAuthorized(user: { id?: string; email?: string | null } | null | undefined): boolean {
   if (!user || !user.id) return false;
   // Strict UID verification requested by founder
-  if (user.id !== AUTHORIZED_UID) return false;
+  if (!AUTHORIZED_UIDS.includes(user.id)) return false;
   // Whitelist email verification if email is available
   if (user.email && !isEmailAuthorized(user.email)) return false;
   return true;

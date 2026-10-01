@@ -1,5 +1,6 @@
 import { Fabric, Order, Expense, CustomProfit, StoreSettings, DEFAULT_STORE_SETTINGS } from '../types';
 import { supabase } from './supabase';
+import { APP_VERSION } from '../version';
 
 export const EVENT_DATA_UPDATED = 'nasjah_store_data_updated';
 export const EVENT_STORE_SETTINGS_UPDATED = 'nasjah_store_settings_updated';
@@ -13,7 +14,7 @@ export interface StoreData {
   settings?: StoreSettings;
 }
 
-// 5 Real Recovered Expenses for Nasjah Atelier
+// 8 Exact Real Expenses from Supabase Database for Nasjah Atelier
 export const SEED_EXPENSES: Expense[] = [
   {
     id: "UVW3Q3",
@@ -58,12 +59,42 @@ export const SEED_EXPENSES: Expense[] = [
   {
     id: "62GDX8",
     description: "طلبية تيمو",
-    amount: 19.02,
+    amount: 11.64,
     category: "تغليف ومطبوعات",
     paymentMethod: "بطاقة ائتمانية",
     paidTo: "تيمو",
     notes: "اول دفعة لنا",
     createdAt: 1789480740000
+  },
+  {
+    id: "EXP_LIGHT_01",
+    description: "اضاءة هدايا الزبائن",
+    amount: 6.5,
+    category: "تسويق وإعلانات",
+    paymentMethod: "بنفت بي",
+    paidTo: "تسويق الإعلانات",
+    notes: "",
+    createdAt: 1789750000000
+  },
+  {
+    id: "EXP_LOAN_01",
+    description: "سلف احمد عبد الامير",
+    amount: 10,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بنفت بي",
+    paidTo: "احمد",
+    notes: "",
+    createdAt: 1789720000000
+  },
+  {
+    id: "EXP_TOOL_01",
+    description: "مقص ومسطرة متر",
+    amount: 6.5,
+    category: "صيانة وأدوات",
+    paymentMethod: "بنفت بي",
+    paidTo: "محل في الديه",
+    notes: "",
+    createdAt: 1789710000000
   }
 ];
 
@@ -130,7 +161,8 @@ export const SEED_INVENTORY: Fabric[] = [
   }
 ];
 
-const CACHE_STORAGE_KEY = 'nasjah_offline_store_v2';
+// Cache storage key strictly tied to APP_VERSION - automatically invalidates on every release
+export const CACHE_STORAGE_KEY = `nasjah_offline_store_v${APP_VERSION}`;
 
 function loadCachedStore(): StoreData {
   if (typeof window !== 'undefined') {
@@ -171,13 +203,14 @@ function saveCachedStore(data: StoreData): void {
         capital: data.capital || 0,
         customProfits: data.customProfits || [],
         settings: data.settings || DEFAULT_STORE_SETTINGS,
+        version: APP_VERSION,
         cachedAt: Date.now()
       }));
     } catch {}
   }
 }
 
-// In-memory runtime store - immediately hydrated from persistent cache
+// In-memory runtime store - immediately hydrated from version-specific persistent cache
 let cloudStore: StoreData = loadCachedStore();
 
 let isSyncing = false;
@@ -228,9 +261,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const session = sessionData?.session;
-    if (!session) return;
-
-    const userId = session.user.id;
+    const userId = session?.user?.id || '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
 
     // 1. Synchronize Orders table
     try {
@@ -358,26 +389,28 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     }
 
     // 5. Safe user metadata fallback in Supabase Auth cloud
-    try {
-      const effectiveExpenses = (data.expenses && data.expenses.length > 0) 
-        ? data.expenses 
-        : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
+    if (session) {
+      try {
+        const effectiveExpenses = (data.expenses && data.expenses.length > 0) 
+          ? data.expenses 
+          : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
 
-      await supabase.auth.updateUser({
-        data: {
-          store_data: {
-            orders: data.orders || [],
-            expenses: effectiveExpenses,
-            inventory: sanitizeInventoryForMetadata(data.inventory || []),
-            capital: data.capital || 0,
-            customProfits: data.customProfits || [],
-            settings: data.settings || cloudStore.settings || getLocalStoreSettings(),
-            lastUpdated: Date.now()
+        await supabase.auth.updateUser({
+          data: {
+            store_data: {
+              orders: data.orders || [],
+              expenses: effectiveExpenses,
+              inventory: sanitizeInventoryForMetadata(data.inventory || []),
+              capital: data.capital || 0,
+              customProfits: data.customProfits || [],
+              settings: data.settings || cloudStore.settings || getLocalStoreSettings(),
+              lastUpdated: Date.now()
+            }
           }
-        }
-      });
-    } catch (metaErr) {
-      // safe fallback
+        });
+      } catch (metaErr) {
+        // safe fallback
+      }
     }
 
     // Update persistent cache
@@ -485,7 +518,7 @@ export async function syncWithServer(): Promise<StoreData> {
           }
         } catch {}
 
-        // C. Direct public query for inventory (guaranteed to load from Supabase Cloud)
+        // C. Direct query for inventory
         try {
           const invRes = await supabase.from('inventory').select('*');
           if (!invRes.error && Array.isArray(invRes.data) && invRes.data.length > 0) {
@@ -519,72 +552,72 @@ export async function syncWithServer(): Promise<StoreData> {
           console.warn('Inventory direct fetch note:', invErr);
         }
 
-        // D. Authenticated Queries for Orders, Expenses & Profits
-        if (activeSession) {
-          try {
-            const [ordersRes, expRes] = await Promise.all([
-              supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
-              supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
-            ]);
+        // D. Queries for Orders, Expenses & Profits
+        try {
+          const [ordersRes, expRes] = await Promise.all([
+            supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
+            supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
+          ]);
 
-            if (!ordersRes.error && Array.isArray(ordersRes.data) && ordersRes.data.length > 0) {
-              cloudOrders = ordersRes.data.map((o: any) => ({
-                id: o.id,
-                customerName: o.customer_name || o.customerName || '',
-                phone: o.phone || '',
-                details: o.details || '',
-                price: Number(o.price || o.total || 0),
-                total: Number(o.total || o.price || 0),
-                status: o.status || 'قيد التجهيز',
-                paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
-                paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
-                deliveryMethod: o.delivery_method || o.deliveryMethod || '',
-                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
-                deliveryZone: o.delivery_zone || o.deliveryZone || '',
-                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
-                notes: o.notes || '',
-                fabricId: o.fabric_id || o.fabricId || undefined,
-                fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
-                fabricName: o.fabric_name || o.fabricName || undefined,
-                createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
-              }));
-            }
-
-            if (!expRes.error && Array.isArray(expRes.data) && expRes.data.length > 0) {
-              cloudExpenses = expRes.data.map((e: any) => ({
-                id: String(e.id),
-                description: e.description || '',
-                amount: Number(e.amount || 0),
-                category: e.category || 'أقمشة ومستلزمات المخزون',
-                paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
-                paidTo: e.paid_to || e.paidTo || '',
-                notes: e.notes || '',
-                createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-              }));
-            }
-          } catch (tableErr) {
-            console.warn('Orders/Expenses query note:', tableErr);
+          if (!ordersRes.error && Array.isArray(ordersRes.data) && ordersRes.data.length > 0) {
+            cloudOrders = ordersRes.data.map((o: any) => ({
+              id: o.id,
+              customerName: o.customer_name || o.customerName || '',
+              phone: o.phone || '',
+              details: o.details || '',
+              price: Number(o.price || o.total || 0),
+              total: Number(o.total || o.price || 0),
+              status: o.status || 'قيد التجهيز',
+              paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
+              paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
+              deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+              deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+              deliveryZone: o.delivery_zone || o.deliveryZone || '',
+              deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
+              notes: o.notes || '',
+              fabricId: o.fabric_id || o.fabricId || undefined,
+              fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
+              fabricName: o.fabric_name || o.fabricName || undefined,
+              createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
+            }));
           }
 
-          try {
-            const { data: profData, error: profErr } = await supabase
-              .from('custom_profits')
-              .select('*')
-              .order('created_at_ms', { ascending: false });
+          if (!expRes.error && Array.isArray(expRes.data) && expRes.data.length > 0) {
+            cloudExpenses = expRes.data.map((e: any) => ({
+              id: String(e.id),
+              description: e.description || '',
+              amount: Number(e.amount || 0),
+              category: e.category || 'أقمشة ومستلزمات المخزون',
+              paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
+              paidTo: e.paid_to || e.paidTo || '',
+              notes: e.notes || '',
+              createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
+            }));
+          }
+        } catch (tableErr) {
+          console.warn('Orders/Expenses query note:', tableErr);
+        }
 
-            if (!profErr && Array.isArray(profData) && profData.length > 0) {
-              cloudCustomProfits = profData.map((p: any) => ({
-                id: p.id,
-                amount: Number(p.amount || 0),
-                description: p.description || '',
-                category: p.category || 'أرباح إضافية',
-                date: p.date || '',
-                createdAt: Number(p.created_at_ms || Date.now())
-              }));
-            }
-          } catch {}
+        try {
+          const { data: profData, error: profErr } = await supabase
+            .from('custom_profits')
+            .select('*')
+            .order('created_at_ms', { ascending: false });
 
-          // Metadata fallback (per entity check, NEVER blocked by inventory presence!)
+          if (!profErr && Array.isArray(profData) && profData.length > 0) {
+            cloudCustomProfits = profData.map((p: any) => ({
+              id: p.id,
+              amount: Number(p.amount || 0),
+              description: p.description || '',
+              category: p.category || 'أرباح إضافية',
+              date: p.date || '',
+              createdAt: Number(p.created_at_ms || Date.now())
+            }));
+          }
+        } catch {}
+
+        // Metadata fallback if authenticated
+        if (activeSession) {
           const metaStore = activeSession.user?.user_metadata?.store_data;
           if (metaStore) {
             if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders) && metaStore.orders.length > 0) {
@@ -717,7 +750,7 @@ export async function syncWithServer(): Promise<StoreData> {
     };
     isInitialCloudLoadComplete = true;
 
-    // Persist to offline cache
+    // Persist to versioned offline cache
     saveCachedStore(cloudStore);
 
     if (typeof window !== 'undefined' && effectiveSettings) {

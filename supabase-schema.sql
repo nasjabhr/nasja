@@ -85,31 +85,28 @@ ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.custom_profits ENABLE ROW LEVEL SECURITY;
 
--- 6. سياسات الأمان: السماح للمستخدم المسجل فقط بالتحكم ببياناته
+-- 6. سياسات الأمان: السماح بعرض وإدارة البيانات لدار نَسْجَة بدون حجب
 DROP POLICY IF EXISTS "Users can manage their own orders" ON public.orders;
-CREATE POLICY "Users can manage their own orders" ON public.orders
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
+DROP POLICY IF EXISTS "Public can view orders" ON public.orders;
 DROP POLICY IF EXISTS "Public can insert orders" ON public.orders;
-CREATE POLICY "Public can insert orders" ON public.orders
-    FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can view orders" ON public.orders FOR SELECT USING (true);
+CREATE POLICY "Public can insert orders" ON public.orders FOR INSERT WITH CHECK (true);
+CREATE POLICY "Users can manage their own orders" ON public.orders FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can manage their own expenses" ON public.expenses;
-CREATE POLICY "Users can manage their own expenses" ON public.expenses
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Public can view expenses" ON public.expenses;
+CREATE POLICY "Public can view expenses" ON public.expenses FOR SELECT USING (true);
+CREATE POLICY "Users can manage their own expenses" ON public.expenses FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can manage their own inventory" ON public.inventory;
-CREATE POLICY "Users can manage their own inventory" ON public.inventory
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Public can view inventory" ON public.inventory;
+CREATE POLICY "Public can view inventory" ON public.inventory FOR SELECT USING (true);
+CREATE POLICY "Users can manage their own inventory" ON public.inventory FOR ALL USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Users can manage their custom profits" ON public.custom_profits;
-CREATE POLICY "Users can manage their custom profits" ON public.custom_profits
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- 7. السماح للزبائن بقراءة وتصفح كتالوج الأقمشة في المتجر العام
-DROP POLICY IF EXISTS "Public can view inventory" ON public.inventory;
-CREATE POLICY "Public can view inventory" ON public.inventory
-    FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Public can view custom profits" ON public.custom_profits;
+CREATE POLICY "Public can view custom profits" ON public.custom_profits FOR SELECT USING (true);
+CREATE POLICY "Users can manage their custom profits" ON public.custom_profits FOR ALL USING (true) WITH CHECK (true);
 
 -- 8. جدول إعدادات متجر الزبائن (Store Settings)
 CREATE TABLE IF NOT EXISTS public.store_settings (

@@ -47,12 +47,42 @@
         {
           "id": "62GDX8",
           "description": "طلبية تيمو",
-          "amount": 19.02,
+          "amount": 11.64,
           "category": "تغليف ومطبوعات",
           "paymentMethod": "بطاقة ائتمانية",
           "paidTo": "تيمو",
           "notes": "اول دفعة لنا",
           "createdAt": 1789480740000
+        },
+        {
+          "id": "EXP_LIGHT_01",
+          "description": "اضاءة هدايا الزبائن",
+          "amount": 6.5,
+          "category": "تسويق وإعلانات",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "تسويق الإعلانات",
+          "notes": "",
+          "createdAt": 1789750000000
+        },
+        {
+          "id": "EXP_LOAN_01",
+          "description": "سلف احمد عبد الامير",
+          "amount": 10,
+          "category": "عام ومصاريف أخرى",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "احمد",
+          "notes": "",
+          "createdAt": 1789720000000
+        },
+        {
+          "id": "EXP_TOOL_01",
+          "description": "مقص ومسطرة متر",
+          "amount": 6.5,
+          "category": "صيانة وأدوات",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "محل في الديه",
+          "notes": "",
+          "createdAt": 1789710000000
         }
       ],
       "inventory": [
@@ -176,12 +206,42 @@
         {
           "id": "62GDX8",
           "description": "طلبية تيمو",
-          "amount": 19.02,
+          "amount": 11.64,
           "category": "تغليف ومطبوعات",
           "paymentMethod": "بطاقة ائتمانية",
           "paidTo": "تيمو",
           "notes": "اول دفعة لنا",
           "createdAt": 1789480740000
+        },
+        {
+          "id": "EXP_LIGHT_01",
+          "description": "اضاءة هدايا الزبائن",
+          "amount": 6.5,
+          "category": "تسويق وإعلانات",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "تسويق الإعلانات",
+          "notes": "",
+          "createdAt": 1789750000000
+        },
+        {
+          "id": "EXP_LOAN_01",
+          "description": "سلف احمد عبد الامير",
+          "amount": 10,
+          "category": "عام ومصاريف أخرى",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "احمد",
+          "notes": "",
+          "createdAt": 1789720000000
+        },
+        {
+          "id": "EXP_TOOL_01",
+          "description": "مقص ومسطرة متر",
+          "amount": 6.5,
+          "category": "صيانة وأدوات",
+          "paymentMethod": "بنفت بي",
+          "paidTo": "محل في الديه",
+          "notes": "",
+          "createdAt": 1789710000000
         }
       ],
       "inventory": [
