@@ -22,13 +22,28 @@
 }
 
 @layer base {
-  html, body, #root {
-    height: 100%;
+  html {
+    min-height: 100%;
     width: 100%;
     margin: 0;
     padding: 0;
-    overflow: hidden !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+    background-color: #FAF7F0;
+    color: #1D3A30;
+  }
+
+  body {
+    min-height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
     touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
     -webkit-tap-highlight-color: transparent;
     background-color: #FAF7F0;
     color: #1D3A30;
@@ -36,6 +51,15 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  #root {
+    min-height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
   }
 }
 
@@ -127,13 +151,28 @@
   transform: scale(0.97);
 }
 
-/* Completely remove scrollbars while preserving scrolling */
-* {
+/* Luxury Slim Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(199, 184, 149, 0.45);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 152, 114, 0.75);
+}
+
+/* Explicit class when scrollbar should be hidden (horizontal scrolling chips) */
+.no-scrollbar {
   -ms-overflow-style: none !important;
   scrollbar-width: none !important;
 }
-
-*::-webkit-scrollbar {
+.no-scrollbar::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
   height: 0 !important;

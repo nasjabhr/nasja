@@ -14,7 +14,9 @@ import {
   Layers,
   Sparkles,
   Truck,
-  User
+  User,
+  ArrowUp,
+  CheckCircle2
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
@@ -121,6 +123,33 @@ export default function Store() {
   // Announcement and tagline directly from store settings
   const activeAnnouncement = storeSettings.announcementText || 'أرقى خامات الأقمشة الرجالية المختارة بعناية فائقة • متوفرة بالقطعة وطاقة القماش';
   const activeTagline = storeSettings.storeTagline || 'أقمشة رجالية فاخرة ومختارة بعناية';
+
+  // Scroll to top button visibility state
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 350);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Lock body scroll when fabric details modal is open & listen for Escape
+  useEffect(() => {
+    if (selectedFabric) {
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setSelectedFabric(null);
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = prevOverflow;
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [selectedFabric]);
 
   // Load catalog & store settings
   useEffect(() => {
@@ -454,7 +483,7 @@ export default function Store() {
   }, [effectiveSeasonsOrder, groupedFabrics]);
 
   return (
-    <div className="min-h-screen bg-[#FAF7F0] text-[#1D3A30] font-sans antialiased selection:bg-[#C7B895]/30 selection:text-[#1D3A30] text-right" dir="rtl">
+    <div className="min-h-screen w-full bg-[#FAF7F0] text-[#1D3A30] font-sans antialiased selection:bg-[#C7B895]/30 selection:text-[#1D3A30] text-right flex flex-col overflow-x-hidden" dir="rtl">
       
       {/* 1. COMPACT LUXURY ANNOUNCEMENT BAR */}
       {storeSettings.headerVisible && activeAnnouncement && (
@@ -690,6 +719,28 @@ export default function Store() {
         </div>
       </header>
 
+      {/* 2.5 LUXURY TRUST & VALUE PROPOSITION BANNER */}
+      <div className="bg-[#FAF7F0] border-b border-[#C7B895]/25 py-2.5 px-4 shadow-2xs">
+        <div className="max-w-6xl mx-auto flex items-center justify-between sm:justify-center gap-3 sm:gap-8 text-[11px] sm:text-xs font-bold text-[#1D3A30]/80 overflow-x-auto no-scrollbar whitespace-nowrap">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#A99872]" />
+            <span>🇧🇭 مملكة البحرين</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <Truck className="w-3.5 h-3.5 text-[#A99872]" />
+            <span>توصيل لكافة المحافظات</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <Scissors className="w-3.5 h-3.5 text-[#A99872]" />
+            <span>تفصيل وخياطة بالطلب</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0 hidden xs:flex">
+            <Sparkles className="w-3.5 h-3.5 text-[#A99872]" />
+            <span>أقمشة يابانية وكورية فاخرة</span>
+          </div>
+        </div>
+      </div>
+
       {/* 3. MODERN SEARCH & CATEGORY FILTER DOCK */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 pb-3 space-y-3">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -874,7 +925,7 @@ export default function Store() {
                             <h3 className="text-xs sm:text-sm font-black text-[#1D3A30] line-clamp-1 group-hover:text-[#A99872] transition-colors">
                               {fabric.name}
                             </h3>
-                            <div className="flex items-baseline gap-1 flex-shrink-0">
+                            <div className="flex items-baseline gap-1 flex-shrink-0 bg-[#FAF7F0] px-2 py-0.5 rounded-lg border border-[#C7B895]/30 shadow-2xs">
                               <span className="text-sm sm:text-base font-black font-mono text-[#1D3A30]">
                                 {fabric.price.toFixed(2)}
                               </span>
@@ -895,7 +946,7 @@ export default function Store() {
 
                         {/* Direct prompt to open fabric details */}
                         <div className="pt-2 flex items-center justify-between text-[10px] sm:text-[11px] text-[#A99872] group-hover:text-[#1D3A30] transition-colors border-t border-[#C7B895]/20 font-bold">
-                          <span>عرض المواصفات وحاسبة الأمتار</span>
+                          <span>عرض وتحديد الأمتار</span>
                           <span className="text-xs transition-transform group-hover:-translate-x-1 duration-200">←</span>
                         </div>
                       </div>
@@ -912,7 +963,12 @@ export default function Store() {
       {/* 5. FABRIC DETAILS & LENGTH CALCULATION MODAL */}
       <AnimatePresence>
         {selectedFabric && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div 
+            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedFabric(null);
+            }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1259,6 +1315,24 @@ export default function Store() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* 5.5 FLOATING BACK-TO-TOP BUTTON */}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 10 }}
+            type="button"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="fixed bottom-6 right-5 sm:bottom-8 sm:right-8 z-40 px-3.5 py-2.5 rounded-2xl bg-[#1D3A30] text-[#E8D5A8] border border-[#C7B895]/60 shadow-xl flex items-center gap-1.5 text-xs font-bold transition hover:bg-[#25493D] active:scale-95 cursor-pointer backdrop-blur-md"
+            title="العودة لأعلى الصفحة"
+          >
+            <ArrowUp className="w-4 h-4 text-[#E8D5A8]" />
+            <span className="text-[11px] font-black">للأعلى</span>
+          </motion.button>
         )}
       </AnimatePresence>
 
