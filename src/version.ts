@@ -1,6 +1,6 @@
 // Application Version and Cache Busting Engine
 // Incremented to force browsers, PWAs, and Service Workers to flush outdated assets
-export const APP_VERSION = '2.5.0';
+export const APP_VERSION = '2.6.0';
 export const APP_BUILD_DATE = '2026.10.01';
 
 // Auto cache invalidation check for browsers and service workers

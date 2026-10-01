@@ -90,6 +90,10 @@ DROP POLICY IF EXISTS "Users can manage their own orders" ON public.orders;
 CREATE POLICY "Users can manage their own orders" ON public.orders
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Public can insert orders" ON public.orders;
+CREATE POLICY "Public can insert orders" ON public.orders
+    FOR INSERT WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Users can manage their own expenses" ON public.expenses;
 CREATE POLICY "Users can manage their own expenses" ON public.expenses
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

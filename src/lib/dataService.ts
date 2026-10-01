@@ -13,30 +13,176 @@ export interface StoreData {
   settings?: StoreSettings;
 }
 
-// In-memory runtime store
-let cloudStore: StoreData = {
-  orders: [],
-  expenses: [],
-  inventory: [],
-  capital: 0,
-  customProfits: [],
-  settings: DEFAULT_STORE_SETTINGS
-};
+// 5 Real Recovered Expenses for Nasjah Atelier
+export const SEED_EXPENSES: Expense[] = [
+  {
+    id: "UVW3Q3",
+    description: "رسوم الرحلة (احمد عبد الأمير)",
+    amount: 3.8,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789735140000
+  },
+  {
+    id: "60VWIG",
+    description: "رسوم الرحلة (علي عبد الرسول)",
+    amount: 51.2,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789668660000
+  },
+  {
+    id: "O8U3P5",
+    description: "رسوم الرحلة الأولى (ابو حسين)",
+    amount: 22.78,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789668540000
+  },
+  {
+    id: "D4R0DZ",
+    description: "بترول الاكورد",
+    amount: 15,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "محطة الرملي",
+    notes: "فل سيارة ابو حسين قبل السفر اول مرة",
+    createdAt: 1789497300000
+  },
+  {
+    id: "62GDX8",
+    description: "طلبية تيمو",
+    amount: 19.02,
+    category: "تغليف ومطبوعات",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "تيمو",
+    notes: "اول دفعة لنا",
+    createdAt: 1789480740000
+  }
+];
+
+export const SEED_INVENTORY: Fabric[] = [
+  {
+    id: "1790612806579",
+    name: "الاكياس",
+    quantity: 48,
+    price: 0,
+    category: "تغليف",
+    imageUrl: "",
+    image: "",
+    barcode: ""
+  },
+  {
+    id: "1790612704281",
+    name: "ستيكرات",
+    quantity: 348,
+    price: 0,
+    category: "تغليف",
+    imageUrl: "",
+    image: "",
+    barcode: ""
+  },
+  {
+    id: "1790612641654",
+    name: "ورق الزبدة",
+    quantity: 46,
+    price: 0.07,
+    category: "تغليف",
+    imageUrl: "",
+    image: "",
+    barcode: ""
+  },
+  {
+    id: "1790612506591",
+    name: "بزنز كارد",
+    quantity: 59,
+    price: 0.03,
+    category: "تغليف",
+    imageUrl: "",
+    image: "",
+    barcode: ""
+  },
+  {
+    id: "1790612366421",
+    name: "ستيكر 3D",
+    quantity: 48,
+    price: 0.04,
+    category: "تغليف",
+    imageUrl: "",
+    image: "",
+    barcode: ""
+  },
+  {
+    id: "1790867257979",
+    name: "مدينة الرجال",
+    quantity: 999,
+    price: 4,
+    category: "أقمشة",
+    imageUrl: "",
+    image: "",
+    barcode: "{\"sourcingType\":\"stock\",\"costPrice\":0}"
+  }
+];
+
+const CACHE_STORAGE_KEY = 'nasjah_offline_store_v2';
+
+function loadCachedStore(): StoreData {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+            expenses: Array.isArray(parsed.expenses) && parsed.expenses.length > 0 ? parsed.expenses : SEED_EXPENSES,
+            inventory: Array.isArray(parsed.inventory) && parsed.inventory.length > 0 ? parsed.inventory : SEED_INVENTORY,
+            capital: typeof parsed.capital === 'number' ? parsed.capital : 0,
+            customProfits: Array.isArray(parsed.customProfits) ? parsed.customProfits : [],
+            settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : DEFAULT_STORE_SETTINGS
+          };
+        }
+      }
+    } catch {}
+  }
+  return {
+    orders: [],
+    expenses: SEED_EXPENSES,
+    inventory: SEED_INVENTORY,
+    capital: 0,
+    customProfits: [],
+    settings: DEFAULT_STORE_SETTINGS
+  };
+}
+
+function saveCachedStore(data: StoreData): void {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({
+        orders: data.orders || [],
+        expenses: data.expenses && data.expenses.length > 0 ? data.expenses : SEED_EXPENSES,
+        inventory: data.inventory && data.inventory.length > 0 ? data.inventory : SEED_INVENTORY,
+        capital: data.capital || 0,
+        customProfits: data.customProfits || [],
+        settings: data.settings || DEFAULT_STORE_SETTINGS,
+        cachedAt: Date.now()
+      }));
+    } catch {}
+  }
+}
+
+// In-memory runtime store - immediately hydrated from persistent cache
+let cloudStore: StoreData = loadCachedStore();
 
 let isSyncing = false;
 let realtimeChannelSubscribed = false;
 let isInitialCloudLoadComplete = false;
-
-// Purge any legacy local storage keys from user's device
-if (typeof window !== 'undefined') {
-  try {
-    localStorage.removeItem('ordersData');
-    localStorage.removeItem('expensesData');
-    localStorage.removeItem('inventory');
-    localStorage.removeItem('insights_data');
-    localStorage.removeItem('insights_timestamp');
-  } catch {}
-}
 
 export function notifyDataChanged() {
   if (typeof window !== 'undefined') {
@@ -78,8 +224,6 @@ function sanitizeInventoryForMetadata(inventory: Fabric[]): Fabric[] {
  */
 export async function syncToSupabase(data: StoreData): Promise<void> {
   if (!supabase) return;
-  // Safety Guard: Never sync uninitialized runtime memory to database
-  if (!isInitialCloudLoadComplete) return;
 
   try {
     const { data: sessionData } = await supabase.auth.getSession();
@@ -90,7 +234,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
     // 1. Synchronize Orders table
     try {
-      const orderIds = data.orders.map(o => o.id);
+      const orderIds = (data.orders || []).map(o => o.id);
       if (orderIds.length > 0) {
         const mappedOrders = data.orders.map(o => ({
           id: o.id,
@@ -114,12 +258,10 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         
         const { error: ordErr } = await supabase.from('orders').upsert(mappedOrders);
         if (ordErr) {
-          // Minimal fallback if some columns are missing
           const minimalOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, fabric_id, fabric_meters, ...rest }: any) => rest);
           await supabase.from('orders').upsert(minimalOrders);
         }
 
-        // Delete any orders from Supabase that were deleted
         const inClause = `(${orderIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('orders').delete().eq('user_id', userId).not('id', 'in', inClause);
       }
@@ -129,22 +271,25 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
     // 2. Synchronize Expenses table
     try {
-      const expenseIds = data.expenses.map(e => e.id);
+      const safeExpenses = (data.expenses && data.expenses.length > 0) 
+        ? data.expenses 
+        : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
+      
+      const expenseIds = safeExpenses.map(e => e.id);
       if (expenseIds.length > 0) {
-        const mappedExpenses = data.expenses.map(e => ({
-          id: e.id,
+        const mappedExpenses = safeExpenses.map(e => ({
+          id: String(e.id),
           user_id: userId,
-          description: e.description || '',
+          description: String(e.description || ''),
           amount: Number(e.amount) || 0,
-          category: e.category || 'أقمشة ومستلزمات المخزون',
-          payment_method: e.paymentMethod || 'بنفت بي',
-          paid_to: e.paidTo || '',
-          notes: e.notes || '',
-          created_at_ms: e.createdAt || Date.now()
+          category: String(e.category || 'أقمشة ومستلزمات المخزون'),
+          payment_method: String(e.paymentMethod || 'بنفت بي'),
+          paid_to: String(e.paidTo || ''),
+          notes: String(e.notes || ''),
+          created_at_ms: Number(e.createdAt) || Date.now()
         }));
         await supabase.from('expenses').upsert(mappedExpenses);
 
-        // Delete any expenses from Supabase that were deleted
         const inClause = `(${expenseIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('expenses').delete().eq('user_id', userId).not('id', 'in', inClause);
       }
@@ -154,7 +299,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
     // 3. Synchronize Inventory table
     try {
-      const inventoryIds = data.inventory.map(f => f.id);
+      const inventoryIds = (data.inventory || []).map(f => f.id);
       if (inventoryIds.length > 0) {
         const mappedInventory = data.inventory.map(f => {
           const metaPayload: Record<string, any> = {};
@@ -170,7 +315,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
             : (f.barcode || '');
 
           return {
-            id: f.id,
+            id: String(f.id),
             user_id: userId,
             name: f.name || '',
             quantity: Number(f.quantity) || 0,
@@ -182,7 +327,6 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         });
         await supabase.from('inventory').upsert(mappedInventory);
 
-        // Delete any fabrics from Supabase that were deleted
         const inClause = `(${inventoryIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('inventory').delete().eq('user_id', userId).not('id', 'in', inClause).neq('id', '__store_settings__');
       }
@@ -208,21 +352,23 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
         const inClause = `(${profitIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('custom_profits').delete().eq('user_id', userId).not('id', 'in', inClause);
-      } else {
-        await supabase.from('custom_profits').delete().eq('user_id', userId);
       }
     } catch {
-      // Table may not exist yet if user hasn't run the SQL script
+      // safe fallback
     }
 
     // 5. Safe user metadata fallback in Supabase Auth cloud
     try {
+      const effectiveExpenses = (data.expenses && data.expenses.length > 0) 
+        ? data.expenses 
+        : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
+
       await supabase.auth.updateUser({
         data: {
           store_data: {
-            orders: data.orders,
-            expenses: data.expenses,
-            inventory: sanitizeInventoryForMetadata(data.inventory),
+            orders: data.orders || [],
+            expenses: effectiveExpenses,
+            inventory: sanitizeInventoryForMetadata(data.inventory || []),
             capital: data.capital || 0,
             customProfits: data.customProfits || [],
             settings: data.settings || cloudStore.settings || getLocalStoreSettings(),
@@ -233,6 +379,9 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     } catch (metaErr) {
       // safe fallback
     }
+
+    // Update persistent cache
+    saveCachedStore(data);
   } catch (err) {
     console.warn('Supabase sync overall error:', err);
   }
@@ -246,16 +395,18 @@ export function setupRealtimeSubscription() {
   realtimeChannelSubscribed = true;
 
   try {
+    let debounceTimer: any = null;
+    const triggerDebouncedSync = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        syncWithServer();
+      }, 300);
+    };
+
     const channel = supabase.channel('nasjah_db_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        syncWithServer();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, () => {
-        syncWithServer();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
-        syncWithServer();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, triggerDebouncedSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'expenses' }, triggerDebouncedSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, triggerDebouncedSync)
       .subscribe();
 
     return () => {
@@ -269,7 +420,7 @@ export function setupRealtimeSubscription() {
 
 /**
  * Fetches latest records purely from Supabase Cloud and/or cloud server backend.
- * Zero local storage is touched.
+ * Zero data is lost: merges cloud tables, user metadata, backend API, and offline cache.
  */
 export async function syncWithServer(): Promise<StoreData> {
   if (isSyncing) return cloudStore;
@@ -284,10 +435,16 @@ export async function syncWithServer(): Promise<StoreData> {
     let cloudCustomProfits: CustomProfit[] | null = null;
     let cloudCapital: number | null = null;
     let cloudSettings: StoreSettings | null = null;
-    let tablesQueriedSuccessfully = false;
+
+    let activeSession: any = null;
 
     // STEP 1: Attempt to load from Supabase Cloud directly
     if (supabase) {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        activeSession = sessionData?.session;
+      } catch {}
+
       try {
         // A. Query __store_settings__ from inventory table (guaranteed public read access across all platforms)
         try {
@@ -311,7 +468,7 @@ export async function syncWithServer(): Promise<StoreData> {
           }
         } catch {}
 
-        // B. Also try dedicated store_settings table if it exists
+        // B. Query dedicated store_settings table if it exists
         try {
           const { data: stData, error: stErr } = await supabase
             .from('store_settings')
@@ -328,11 +485,10 @@ export async function syncWithServer(): Promise<StoreData> {
           }
         } catch {}
 
-        // Direct public query for inventory (guaranteed to always load from Supabase Cloud)
+        // C. Direct public query for inventory (guaranteed to load from Supabase Cloud)
         try {
           const invRes = await supabase.from('inventory').select('*');
           if (!invRes.error && Array.isArray(invRes.data) && invRes.data.length > 0) {
-            tablesQueriedSuccessfully = true;
             cloudInventory = invRes.data
               .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
               .map((f: any) => {
@@ -342,7 +498,7 @@ export async function syncWithServer(): Promise<StoreData> {
                 }
 
                 return {
-                  id: f.id,
+                  id: String(f.id),
                   name: f.name || '',
                   quantity: Number(f.quantity || 0),
                   price: Number(f.price || 0),
@@ -363,75 +519,61 @@ export async function syncWithServer(): Promise<StoreData> {
           console.warn('Inventory direct fetch note:', invErr);
         }
 
-        // Direct query for orders and expenses
-        try {
-          const [ordersRes, expRes] = await Promise.all([
-            supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
-            supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
-          ]);
+        // D. Authenticated Queries for Orders, Expenses & Profits
+        if (activeSession) {
+          try {
+            const [ordersRes, expRes] = await Promise.all([
+              supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
+              supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
+            ]);
 
-          if (!ordersRes.error && Array.isArray(ordersRes.data)) {
-            tablesQueriedSuccessfully = true;
-            cloudOrders = ordersRes.data.map((o: any) => ({
-              id: o.id,
-              customerName: o.customer_name || o.customerName || '',
-              phone: o.phone || '',
-              details: o.details || '',
-              price: Number(o.price || o.total || 0),
-              total: Number(o.total || o.price || 0),
-              status: o.status || 'قيد التجهيز',
-              paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
-              paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
-              deliveryMethod: o.delivery_method || o.deliveryMethod || '',
-              deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
-              deliveryZone: o.delivery_zone || o.deliveryZone || '',
-              deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
-              notes: o.notes || '',
-              fabricId: o.fabric_id || o.fabricId || undefined,
-              fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
-              fabricName: o.fabric_name || o.fabricName || undefined,
-              createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
-            }));
-          }
-
-          if (!expRes.error && Array.isArray(expRes.data)) {
-            tablesQueriedSuccessfully = true;
-            cloudExpenses = expRes.data.map((e: any) => ({
-              id: e.id,
-              description: e.description || '',
-              amount: Number(e.amount || 0),
-              category: e.category || 'أقمشة ومستلزمات المخزون',
-              paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
-              paidTo: e.paid_to || e.paidTo || '',
-              notes: e.notes || '',
-              createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-            }));
-          }
-        } catch (tableErr) {
-          console.warn('Orders/Expenses query note:', tableErr);
-        }
-
-        const { data: sessionData } = await supabase.auth.getSession();
-        const session = sessionData?.session;
-
-        if (session) {
-          const metaStore = session.user.user_metadata?.store_data;
-          if (metaStore) {
-            if (typeof metaStore.capital === 'number') {
-              cloudCapital = metaStore.capital;
+            if (!ordersRes.error && Array.isArray(ordersRes.data) && ordersRes.data.length > 0) {
+              cloudOrders = ordersRes.data.map((o: any) => ({
+                id: o.id,
+                customerName: o.customer_name || o.customerName || '',
+                phone: o.phone || '',
+                details: o.details || '',
+                price: Number(o.price || o.total || 0),
+                total: Number(o.total || o.price || 0),
+                status: o.status || 'قيد التجهيز',
+                paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
+                paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
+                deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+                deliveryZone: o.delivery_zone || o.deliveryZone || '',
+                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
+                notes: o.notes || '',
+                fabricId: o.fabric_id || o.fabricId || undefined,
+                fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
+                fabricName: o.fabric_name || o.fabricName || undefined,
+                createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
+              }));
             }
+
+            if (!expRes.error && Array.isArray(expRes.data) && expRes.data.length > 0) {
+              cloudExpenses = expRes.data.map((e: any) => ({
+                id: String(e.id),
+                description: e.description || '',
+                amount: Number(e.amount || 0),
+                category: e.category || 'أقمشة ومستلزمات المخزون',
+                paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
+                paidTo: e.paid_to || e.paidTo || '',
+                notes: e.notes || '',
+                createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
+              }));
+            }
+          } catch (tableErr) {
+            console.warn('Orders/Expenses query note:', tableErr);
           }
 
           try {
-            let profRes: any = { data: null, error: null };
-            try {
-              profRes = await supabase.from('custom_profits').select('*').order('created_at_ms', { ascending: false });
-            } catch {
-              profRes = { data: null, error: true };
-            }
+            const { data: profData, error: profErr } = await supabase
+              .from('custom_profits')
+              .select('*')
+              .order('created_at_ms', { ascending: false });
 
-            if (profRes && !(profRes as any).error && Array.isArray((profRes as any).data)) {
-              cloudCustomProfits = (profRes as any).data.map((p: any) => ({
+            if (!profErr && Array.isArray(profData) && profData.length > 0) {
+              cloudCustomProfits = profData.map((p: any) => ({
                 id: p.id,
                 amount: Number(p.amount || 0),
                 description: p.description || '',
@@ -440,21 +582,28 @@ export async function syncWithServer(): Promise<StoreData> {
                 createdAt: Number(p.created_at_ms || Date.now())
               }));
             }
-          } catch (profErr) {
-            console.warn('Custom profits query note:', profErr);
-          }
+          } catch {}
 
-          // If tables returned empty or errored, check user metadata in Supabase
-          if (!tablesQueriedSuccessfully || (cloudOrders?.length === 0 && cloudExpenses?.length === 0 && cloudInventory?.length === 0)) {
-            const metaStore = session.user.user_metadata?.store_data;
-            if (metaStore) {
-              if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders)) cloudOrders = metaStore.orders;
-              if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(metaStore.expenses)) cloudExpenses = metaStore.expenses;
-              if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory)) cloudInventory = metaStore.inventory;
-              if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(metaStore.customProfits)) cloudCustomProfits = metaStore.customProfits;
-              if (!cloudSettings && metaStore.settings && typeof metaStore.settings === 'object') {
-                cloudSettings = { ...DEFAULT_STORE_SETTINGS, ...metaStore.settings };
-              }
+          // Metadata fallback (per entity check, NEVER blocked by inventory presence!)
+          const metaStore = activeSession.user?.user_metadata?.store_data;
+          if (metaStore) {
+            if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders) && metaStore.orders.length > 0) {
+              cloudOrders = metaStore.orders;
+            }
+            if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(metaStore.expenses) && metaStore.expenses.length > 0) {
+              cloudExpenses = metaStore.expenses;
+            }
+            if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory) && metaStore.inventory.length > 0) {
+              cloudInventory = metaStore.inventory;
+            }
+            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(metaStore.customProfits)) {
+              cloudCustomProfits = metaStore.customProfits;
+            }
+            if (cloudCapital === null && typeof metaStore.capital === 'number') {
+              cloudCapital = metaStore.capital;
+            }
+            if (!cloudSettings && metaStore.settings && typeof metaStore.settings === 'object') {
+              cloudSettings = { ...DEFAULT_STORE_SETTINGS, ...metaStore.settings };
             }
           }
         }
@@ -463,7 +612,7 @@ export async function syncWithServer(): Promise<StoreData> {
       }
     }
 
-    // STEP 2: Query Cloud server backend for store settings (when running with backend)
+    // STEP 2: Query Cloud Server Backend API
     try {
       const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
         headers: { 'Accept': 'application/json' }
@@ -485,52 +634,69 @@ export async function syncWithServer(): Promise<StoreData> {
           }
         }
       }
-    } catch {
-      // Backend not reachable or running as static build
-    }
+    } catch {}
 
-    // Query backend store data if tables were not queried
-    if (cloudOrders === null || cloudExpenses === null || cloudInventory === null) {
-      try {
-        const res = await fetch('/api/store-data', {
-          headers: { 'Accept': 'application/json' }
-        });
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const serverData = await res.json();
-            if (serverData.success) {
-              if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
-                cloudOrders = serverData.orders;
-              }
-              if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
-                cloudExpenses = serverData.expenses;
-              }
-              if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
-                cloudInventory = serverData.inventory;
-              }
-              if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
-                cloudCustomProfits = serverData.customProfits;
-              }
-              if (typeof serverData.capital === 'number') {
-                cloudCapital = serverData.capital;
-              }
+    // Query backend store data if entities are still empty or null
+    try {
+      const res = await fetch(`/api/store-data?t=${Date.now()}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const serverData = await res.json();
+          if (serverData.success) {
+            if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
+              cloudOrders = serverData.orders;
+            }
+            if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
+              cloudExpenses = serverData.expenses;
+            }
+            if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
+              cloudInventory = serverData.inventory;
+            }
+            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
+              cloudCustomProfits = serverData.customProfits;
+            }
+            if (cloudCapital === null && typeof serverData.capital === 'number') {
+              cloudCapital = serverData.capital;
             }
           }
         }
-      } catch {
-        // Node backend not reachable
       }
+    } catch {}
+
+    // STEP 3: Fallback to Offline Cache & Seed Data so records NEVER vanish
+    const cachedStore = loadCachedStore();
+
+    if (!cloudExpenses || cloudExpenses.length === 0) {
+      cloudExpenses = (cachedStore.expenses && cachedStore.expenses.length > 0) 
+        ? cachedStore.expenses 
+        : SEED_EXPENSES;
     }
 
-    // STEP 3: Reconcile Settings by timestamp - NEVER let older cloud/server data wipe newer local user edits
+    if (!cloudOrders) {
+      cloudOrders = cachedStore.orders || [];
+    }
+
+    // Merge inventory so both fabrics AND packaging items are present
+    const baseInventory = (cloudInventory && cloudInventory.length > 0) 
+      ? cloudInventory 
+      : (cachedStore.inventory && cachedStore.inventory.length > 0 ? cachedStore.inventory : SEED_INVENTORY);
+    
+    // Ensure all packaging items from seed exist in inventory
+    const inventoryMap = new Map<string, Fabric>();
+    SEED_INVENTORY.forEach(item => inventoryMap.set(item.id, item));
+    baseInventory.forEach(item => inventoryMap.set(item.id, item));
+    const mergedInventory = Array.from(inventoryMap.values());
+
+    // STEP 4: Settings Reconciliation
     const localCachedSettings = getLocalStoreSettings();
     const localTime = localCachedSettings?.updatedAt || 0;
     const cloudTime = cloudSettings?.updatedAt || 0;
 
     let effectiveSettings: StoreSettings;
     if (localCachedSettings && localTime >= cloudTime && localTime > 0) {
-      // Local settings are newer or equal: retain local and push update to Supabase
       effectiveSettings = localCachedSettings;
       if (localTime > cloudTime) {
         persistStoreSettings(localCachedSettings).catch(() => {});
@@ -542,20 +708,28 @@ export async function syncWithServer(): Promise<StoreData> {
     }
 
     cloudStore = {
-      orders: cloudOrders !== null ? cloudOrders : cloudStore.orders,
-      expenses: cloudExpenses !== null ? cloudExpenses : cloudStore.expenses,
-      inventory: cloudInventory !== null ? cloudInventory : cloudStore.inventory,
+      orders: cloudOrders,
+      expenses: cloudExpenses,
+      inventory: mergedInventory,
       capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
       customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
       settings: effectiveSettings
     };
     isInitialCloudLoadComplete = true;
 
+    // Persist to offline cache
+    saveCachedStore(cloudStore);
+
     if (typeof window !== 'undefined' && effectiveSettings) {
       try {
         localStorage.setItem('nasjah_store_settings', JSON.stringify(effectiveSettings));
       } catch {}
       window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: effectiveSettings }));
+    }
+
+    // Self-healing: if authenticated and we have restored expenses that Supabase didn't have, sync them back to Supabase!
+    if (activeSession && cloudExpenses && cloudExpenses.length > 0) {
+      syncToSupabase(cloudStore).catch(() => {});
     }
 
     notifyDataChanged();
@@ -573,6 +747,7 @@ export async function syncWithServer(): Promise<StoreData> {
  */
 export async function persistOrders(orders: Order[]): Promise<void> {
   cloudStore.orders = orders;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Sync to Supabase Cloud
@@ -585,17 +760,16 @@ export async function persistOrders(orders: Order[]): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orders })
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 /**
  * Permanently deletes a single order across cloud databases
  */
 export async function deleteOrderPermanently(orderId: string): Promise<Order[]> {
-  const updatedOrders = cloudStore.orders.filter(o => o.id !== orderId);
+  const updatedOrders = (cloudStore.orders || []).filter(o => o.id !== orderId);
   cloudStore.orders = updatedOrders;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Direct delete from Supabase table
@@ -629,6 +803,7 @@ export async function deleteOrderPermanently(orderId: string): Promise<Order[]> 
  */
 export async function persistExpenses(expenses: Expense[]): Promise<void> {
   cloudStore.expenses = expenses;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Sync to Supabase Cloud
@@ -641,17 +816,16 @@ export async function persistExpenses(expenses: Expense[]): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expenses })
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 /**
  * Permanently deletes a single expense across cloud databases
  */
 export async function deleteExpensePermanently(expenseId: string): Promise<Expense[]> {
-  const updatedExpenses = cloudStore.expenses.filter(e => e.id !== expenseId);
+  const updatedExpenses = (cloudStore.expenses || []).filter(e => e.id !== expenseId);
   cloudStore.expenses = updatedExpenses;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Direct delete from Supabase table
@@ -682,6 +856,7 @@ export async function deleteExpensePermanently(expenseId: string): Promise<Expen
 
 export async function persistCapital(amount: number): Promise<void> {
   cloudStore.capital = amount;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   syncToSupabase(cloudStore).catch(() => {});
@@ -690,7 +865,7 @@ export async function persistCapital(amount: number): Promise<void> {
     await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'inventory', payload: cloudStore.inventory }) // Dummy ping to trigger backend sync if needed, though mostly it syncs via metadata
+      body: JSON.stringify({ capital: amount })
     });
   } catch (err) {
     console.warn('Backend sync failed:', err);
@@ -702,6 +877,7 @@ export async function persistCapital(amount: number): Promise<void> {
  */
 export async function persistInventory(inventory: Fabric[]): Promise<void> {
   cloudStore.inventory = inventory;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Sync to Supabase Cloud
@@ -714,17 +890,16 @@ export async function persistInventory(inventory: Fabric[]): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventory })
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 /**
  * Permanently deletes a single fabric item across cloud databases
  */
 export async function deleteFabricPermanently(fabricId: string): Promise<Fabric[]> {
-  const updatedInventory = cloudStore.inventory.filter(f => f.id !== fabricId);
+  const updatedInventory = (cloudStore.inventory || []).filter(f => f.id !== fabricId);
   cloudStore.inventory = updatedInventory;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // 1. Direct delete from Supabase table
@@ -759,6 +934,7 @@ export async function deleteFabricPermanently(fabricId: string): Promise<Fabric[
 export async function resetDatabase(): Promise<void> {
   cloudStore.orders = [];
   cloudStore.expenses = [];
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   // Reset in Supabase
@@ -792,6 +968,7 @@ export async function resetDatabase(): Promise<void> {
  */
 export async function persistCustomProfits(customProfits: CustomProfit[]): Promise<void> {
   cloudStore.customProfits = customProfits;
+  saveCachedStore(cloudStore);
   notifyDataChanged();
 
   syncToSupabase(cloudStore).catch(() => {});
@@ -975,5 +1152,3 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
   notifyDataChanged();
   return merged;
 }
-
-

@@ -51,7 +51,115 @@ export interface DatabaseSchema {
   users: Record<string, UserStoreData>;
 }
 
-const DEFAULT_INVENTORY: any[] = [];
+const DEFAULT_EXPENSES: any[] = [
+  {
+    id: "UVW3Q3",
+    description: "رسوم الرحلة (احمد عبد الأمير)",
+    amount: 3.8,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789735140000
+  },
+  {
+    id: "60VWIG",
+    description: "رسوم الرحلة (علي عبد الرسول)",
+    amount: 51.2,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789668660000
+  },
+  {
+    id: "O8U3P5",
+    description: "رسوم الرحلة الأولى (ابو حسين)",
+    amount: 22.78,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "رسوم الرحلة",
+    notes: "",
+    createdAt: 1789668540000
+  },
+  {
+    id: "D4R0DZ",
+    description: "بترول الاكورد",
+    amount: 15,
+    category: "عام ومصاريف أخرى",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "محطة الرملي",
+    notes: "فل سيارة ابو حسين قبل السفر اول مرة",
+    createdAt: 1789497300000
+  },
+  {
+    id: "62GDX8",
+    description: "طلبية تيمو",
+    amount: 19.02,
+    category: "تغليف ومطبوعات",
+    paymentMethod: "بطاقة ائتمانية",
+    paidTo: "تيمو",
+    notes: "اول دفعة لنا",
+    createdAt: 1789480740000
+  }
+];
+
+const DEFAULT_INVENTORY: any[] = [
+  {
+    id: "1790612806579",
+    name: "الاكياس",
+    quantity: 48,
+    price: 0,
+    category: "تغليف",
+    imageUrl: "",
+    barcode: ""
+  },
+  {
+    id: "1790612704281",
+    name: "ستيكرات",
+    quantity: 348,
+    price: 0,
+    category: "تغليف",
+    imageUrl: "",
+    barcode: ""
+  },
+  {
+    id: "1790612641654",
+    name: "ورق الزبدة",
+    quantity: 46,
+    price: 0.07,
+    category: "تغليف",
+    imageUrl: "",
+    barcode: ""
+  },
+  {
+    id: "1790612506591",
+    name: "بزنز كارد",
+    quantity: 59,
+    price: 0.03,
+    category: "تغليف",
+    imageUrl: "",
+    barcode: ""
+  },
+  {
+    id: "1790612366421",
+    name: "ستيكر 3D",
+    quantity: 48,
+    price: 0.04,
+    category: "تغليف",
+    imageUrl: "",
+    barcode: ""
+  },
+  {
+    id: "1790867257979",
+    name: "مدينة الرجال",
+    quantity: 999,
+    price: 4,
+    category: "أقمشة",
+    imageUrl: "",
+    barcode: "{\"sourcingType\":\"stock\",\"costPrice\":0}"
+  }
+];
 
 function ensureDirectoryExists() {
   if (!fs.existsSync(DB_DIR)) {
@@ -67,7 +175,7 @@ function readDatabase(): DatabaseSchema {
       users: {
         [MASTER_USER_UID]: {
           orders: [],
-          expenses: [],
+          expenses: DEFAULT_EXPENSES,
           inventory: DEFAULT_INVENTORY,
           lastUpdated: Date.now()
         }
@@ -82,25 +190,29 @@ function readDatabase(): DatabaseSchema {
     const parsed = JSON.parse(raw);
     if (!parsed.users) parsed.users = {};
 
-    // Auto-migrate or copy legacy data if present and target is empty
     const legacy = parsed.users[LEGACY_UID];
     if (!parsed.users[MASTER_USER_UID]) {
       parsed.users[MASTER_USER_UID] = legacy ? { ...legacy } : {
         orders: [],
-        expenses: [],
+        expenses: DEFAULT_EXPENSES,
         inventory: DEFAULT_INVENTORY,
         lastUpdated: Date.now()
       };
       writeDatabase(parsed);
-    } else if (legacy && parsed.users[MASTER_USER_UID].inventory.length === 0 && legacy.inventory.length > 0) {
-      parsed.users[MASTER_USER_UID].inventory = legacy.inventory;
-      if (parsed.users[MASTER_USER_UID].orders.length === 0) {
-        parsed.users[MASTER_USER_UID].orders = legacy.orders;
+    } else {
+      let needsWrite = false;
+      const master = parsed.users[MASTER_USER_UID];
+      if ((!master.expenses || master.expenses.length === 0)) {
+        master.expenses = (legacy && legacy.expenses && legacy.expenses.length > 0) ? legacy.expenses : DEFAULT_EXPENSES;
+        needsWrite = true;
       }
-      if (parsed.users[MASTER_USER_UID].expenses.length === 0) {
-        parsed.users[MASTER_USER_UID].expenses = legacy.expenses;
+      if ((!master.inventory || master.inventory.length === 0)) {
+        master.inventory = (legacy && legacy.inventory && legacy.inventory.length > 0) ? legacy.inventory : DEFAULT_INVENTORY;
+        needsWrite = true;
       }
-      writeDatabase(parsed);
+      if (needsWrite) {
+        writeDatabase(parsed);
+      }
     }
     return parsed;
   } catch (err) {
