@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Trash2, Receipt, DollarSign, Tag, Edit3, Clock, Calendar, 
-  Search, Filter, AlertTriangle, X, CreditCard, UserCheck 
+  Search, Filter, AlertTriangle, X, CreditCard, UserCheck, RefreshCw 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Expense, PaymentMethod } from '../types';
@@ -19,6 +19,7 @@ const EXPENSE_CATEGORIES = [
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -187,13 +188,30 @@ export default function Expenses() {
             {expenses.length} مصروف • <span className="font-bold text-rose-700 font-mono">{totalAmount.toFixed(2)} د.ب</span>
           </p>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="btn-primary-atelier px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4 text-[#E8D5A8]" />
-          <span>مصروف جديد</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              setIsRefreshing(true);
+              try {
+                const latest = await syncWithServer();
+                setExpenses(latest.expenses);
+              } finally {
+                setTimeout(() => setIsRefreshing(false), 500);
+              }
+            }}
+            title="مزامنة فورية وتحديث البيانات"
+            className="p-2 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[#1D3A30] hover:bg-[#E8D5A8]/40 transition active:scale-95 cursor-pointer shadow-xs"
+          >
+            <RefreshCw className={`w-4 h-4 text-[#1D3A30] ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="btn-primary-atelier px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4 text-[#E8D5A8]" />
+            <span>مصروف جديد</span>
+          </button>
+        </div>
       </div>
 
       {/* Mobile Search & Filter Chips */}

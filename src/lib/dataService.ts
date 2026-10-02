@@ -164,6 +164,59 @@ export const SEED_INVENTORY: Fabric[] = [
 // Cache storage key strictly tied to APP_VERSION - automatically invalidates on every release
 export const CACHE_STORAGE_KEY = `nasjah_offline_store_v${APP_VERSION}`;
 
+const DELETED_EXPENSES_KEY = 'nasjah_deleted_expense_ids';
+
+export function getDeletedExpenseIds(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DELETED_EXPENSES_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+export function recordDeletedExpenseId(id: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const current = getDeletedExpenseIds();
+    current.add(id);
+    localStorage.setItem(DELETED_EXPENSES_KEY, JSON.stringify(Array.from(current)));
+  } catch {}
+}
+
+/**
+ * Merges any expense array with the 8 canonical real expenses from Supabase.
+ * Guarantees that all 8 original expenses are preserved unless explicitly deleted by user,
+ * and fixes stale amounts (e.g. Temu 11.64 BHD).
+ */
+export function mergeExpensesWithSeed(existingExpenses?: Expense[] | null): Expense[] {
+  const deletedIds = getDeletedExpenseIds();
+  const map = new Map<string, Expense>();
+
+  // 1. Populate canonical seed expenses
+  for (const seed of SEED_EXPENSES) {
+    if (!deletedIds.has(seed.id)) {
+      map.set(seed.id, seed);
+    }
+  }
+
+  // 2. Overlay existing/incoming expenses
+  if (Array.isArray(existingExpenses)) {
+    for (const exp of existingExpenses) {
+      if (!exp || !exp.id || deletedIds.has(exp.id)) continue;
+      // Sanitize old incorrect Temu amount (19.02) to true Supabase amount (11.64)
+      if (exp.id === '62GDX8' && (Number(exp.amount) === 19.02 || !exp.amount)) {
+        map.set('62GDX8', { ...exp, amount: 11.64 });
+      } else {
+        const existing = map.get(exp.id);
+        map.set(exp.id, existing ? { ...existing, ...exp } : exp);
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
 function loadCachedStore(): StoreData {
   if (typeof window !== 'undefined') {
     try {
@@ -173,7 +226,7 @@ function loadCachedStore(): StoreData {
         if (parsed && typeof parsed === 'object') {
           return {
             orders: Array.isArray(parsed.orders) ? parsed.orders : [],
-            expenses: Array.isArray(parsed.expenses) && parsed.expenses.length > 0 ? parsed.expenses : SEED_EXPENSES,
+            expenses: mergeExpensesWithSeed(parsed.expenses),
             inventory: Array.isArray(parsed.inventory) && parsed.inventory.length > 0 ? parsed.inventory : SEED_INVENTORY,
             capital: typeof parsed.capital === 'number' ? parsed.capital : 0,
             customProfits: Array.isArray(parsed.customProfits) ? parsed.customProfits : [],
@@ -185,7 +238,7 @@ function loadCachedStore(): StoreData {
   }
   return {
     orders: [],
-    expenses: SEED_EXPENSES,
+    expenses: mergeExpensesWithSeed([]),
     inventory: SEED_INVENTORY,
     capital: 0,
     customProfits: [],
@@ -198,7 +251,7 @@ function saveCachedStore(data: StoreData): void {
     try {
       localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({
         orders: data.orders || [],
-        expenses: data.expenses && data.expenses.length > 0 ? data.expenses : SEED_EXPENSES,
+        expenses: mergeExpensesWithSeed(data.expenses),
         inventory: data.inventory && data.inventory.length > 0 ? data.inventory : SEED_INVENTORY,
         capital: data.capital || 0,
         customProfits: data.customProfits || [],
@@ -302,9 +355,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
     // 2. Synchronize Expenses table
     try {
-      const safeExpenses = (data.expenses && data.expenses.length > 0) 
-        ? data.expenses 
-        : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
+      const safeExpenses = mergeExpensesWithSeed(data.expenses);
       
       const expenseIds = safeExpenses.map(e => e.id);
       if (expenseIds.length > 0) {
@@ -391,9 +442,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     // 5. Safe user metadata fallback in Supabase Auth cloud
     if (session) {
       try {
-        const effectiveExpenses = (data.expenses && data.expenses.length > 0) 
-          ? data.expenses 
-          : (cloudStore.expenses && cloudStore.expenses.length > 0 ? cloudStore.expenses : SEED_EXPENSES);
+        const effectiveExpenses = mergeExpensesWithSeed(data.expenses);
 
         await supabase.auth.updateUser({
           data: {
@@ -583,7 +632,7 @@ export async function syncWithServer(): Promise<StoreData> {
           }
 
           if (!expRes.error && Array.isArray(expRes.data) && expRes.data.length > 0) {
-            cloudExpenses = expRes.data.map((e: any) => ({
+            cloudExpenses = mergeExpensesWithSeed(expRes.data.map((e: any) => ({
               id: String(e.id),
               description: e.description || '',
               amount: Number(e.amount || 0),
@@ -592,7 +641,7 @@ export async function syncWithServer(): Promise<StoreData> {
               paidTo: e.paid_to || e.paidTo || '',
               notes: e.notes || '',
               createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-            }));
+            })));
           }
         } catch (tableErr) {
           console.warn('Orders/Expenses query note:', tableErr);
@@ -623,8 +672,9 @@ export async function syncWithServer(): Promise<StoreData> {
             if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders) && metaStore.orders.length > 0) {
               cloudOrders = metaStore.orders;
             }
-            if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(metaStore.expenses) && metaStore.expenses.length > 0) {
-              cloudExpenses = metaStore.expenses;
+            if (Array.isArray(metaStore.expenses) && metaStore.expenses.length > 0) {
+              const metaMerged = mergeExpensesWithSeed(metaStore.expenses);
+              cloudExpenses = cloudExpenses ? mergeExpensesWithSeed([...cloudExpenses, ...metaMerged]) : metaMerged;
             }
             if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory) && metaStore.inventory.length > 0) {
               cloudInventory = metaStore.inventory;
@@ -682,8 +732,9 @@ export async function syncWithServer(): Promise<StoreData> {
             if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
               cloudOrders = serverData.orders;
             }
-            if ((!cloudExpenses || cloudExpenses.length === 0) && Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
-              cloudExpenses = serverData.expenses;
+            if (Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
+              const serverMerged = mergeExpensesWithSeed(serverData.expenses);
+              cloudExpenses = cloudExpenses ? mergeExpensesWithSeed([...cloudExpenses, ...serverMerged]) : serverMerged;
             }
             if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
               cloudInventory = serverData.inventory;
@@ -702,11 +753,7 @@ export async function syncWithServer(): Promise<StoreData> {
     // STEP 3: Fallback to Offline Cache & Seed Data so records NEVER vanish
     const cachedStore = loadCachedStore();
 
-    if (!cloudExpenses || cloudExpenses.length === 0) {
-      cloudExpenses = (cachedStore.expenses && cachedStore.expenses.length > 0) 
-        ? cachedStore.expenses 
-        : SEED_EXPENSES;
-    }
+    cloudExpenses = mergeExpensesWithSeed(cloudExpenses || cachedStore.expenses);
 
     if (!cloudOrders) {
       cloudOrders = cachedStore.orders || [];
@@ -742,7 +789,7 @@ export async function syncWithServer(): Promise<StoreData> {
 
     cloudStore = {
       orders: cloudOrders,
-      expenses: cloudExpenses,
+      expenses: mergeExpensesWithSeed(cloudExpenses),
       inventory: mergedInventory,
       capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
       customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
@@ -856,6 +903,7 @@ export async function persistExpenses(expenses: Expense[]): Promise<void> {
  * Permanently deletes a single expense across cloud databases
  */
 export async function deleteExpensePermanently(expenseId: string): Promise<Expense[]> {
+  recordDeletedExpenseId(expenseId);
   const updatedExpenses = (cloudStore.expenses || []).filter(e => e.id !== expenseId);
   cloudStore.expenses = updatedExpenses;
   saveCachedStore(cloudStore);
