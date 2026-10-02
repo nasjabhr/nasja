@@ -66,18 +66,23 @@ export default function Settings() {
     setTimeout(() => setFeedback(null), 3500);
   };
 
-  const handleRevokeAllOthers = () => {
+  const handleRevokeAllOthers = async () => {
     setIsRevokingAll(true);
-    setTimeout(() => {
-      const updated = revokeAllOtherSessions();
-      setSessions(updated);
-      setIsRevokingAll(false);
-      setFeedback({
-        type: 'success',
-        message: 'تم تسجيل الخروج وإنهاء جلسات كافة الأجهزة الأخرى فوراً.'
-      });
-      setTimeout(() => setFeedback(null), 4000);
-    }, 600);
+    try {
+      if (supabase) {
+        await supabase.auth.signOut({ scope: 'others' });
+      }
+    } catch (e) {
+      console.warn('Remote revoke sessions note:', e);
+    }
+    const updated = revokeAllOtherSessions();
+    setSessions(updated);
+    setIsRevokingAll(false);
+    setFeedback({
+      type: 'success',
+      message: 'تم تسجيل الخروج وإنهاء جلسات كافة الأجهزة الأخرى فوراً.'
+    });
+    setTimeout(() => setFeedback(null), 4000);
   };
 
   const handleEmergencyLock = async () => {

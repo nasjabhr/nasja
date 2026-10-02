@@ -101,17 +101,13 @@ export default function StoreSettingsPage() {
         }
       } catch {}
 
-      // Only apply if user is NOT actively typing and candidate is newer than local
+      // Apply cloud candidate if user is NOT actively typing
       if (candidate && !isDirtyRef.current) {
-        const candTime = candidate.updatedAt || 0;
-        const currTime = settingsRef.current?.updatedAt || 0;
-        if (candTime > currTime && candTime > 0) {
-          setSettings(candidate);
-          settingsRef.current = candidate;
-          try {
-            localStorage.setItem('nasjah_store_settings', JSON.stringify(candidate));
-          } catch {}
-        }
+        setSettings(candidate);
+        settingsRef.current = candidate;
+        try {
+          localStorage.setItem('nasjah_store_settings', JSON.stringify(candidate));
+        } catch {}
       }
     }
 

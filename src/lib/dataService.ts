@@ -319,34 +319,48 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     try {
       const orderIds = (data.orders || []).map(o => o.id);
       if (orderIds.length > 0) {
-        const mappedOrders = data.orders.map(o => ({
-          id: o.id,
-          user_id: userId,
-          customer_name: o.customerName || '',
-          phone: o.phone || '',
-          details: o.details || '',
-          price: Number(o.price || o.total || 0),
-          total: Number(o.total || o.price || 0),
-          status: o.status || 'قيد التجهيز',
-          payment_method: o.paymentMethod || 'بنفت بي',
-          delivery_method: o.deliveryMethod || '',
-          delivery_type: o.deliveryType || 'قدوم شخصي',
-          delivery_zone: o.deliveryZone || '',
-          delivery_fee: Number(o.deliveryFee) || 0,
-          fabric_id: o.fabricId || null,
-          fabric_meters: o.fabricMeters ? Number(o.fabricMeters) : null,
-          notes: o.notes || '',
-          created_at_ms: o.createdAt || Date.now()
-        }));
+        const mappedOrders = data.orders.map(o => {
+          const metaPayload: Record<string, any> = {
+            paymentStatus: o.paymentStatus || 'تم الدفع',
+            governorate: o.governorate,
+            area: o.area
+          };
+          const rawNotes = o.notes || '';
+          const cleanNotes = rawNotes.replace(/<!--nasjah_meta:(.*?)-->/g, '').trim();
+          const packedNotes = cleanNotes
+            ? `${cleanNotes}\n<!--nasjah_meta:${JSON.stringify(metaPayload)}-->`
+            : `<!--nasjah_meta:${JSON.stringify(metaPayload)}-->`;
+
+          return {
+            id: o.id,
+            user_id: userId,
+            customer_name: o.customerName || '',
+            phone: o.phone || '',
+            details: o.details || '',
+            price: Number(o.price || o.total || 0),
+            total: Number(o.total || o.price || 0),
+            status: o.status || 'قيد التجهيز',
+            payment_method: o.paymentMethod || 'بنفت بي',
+            delivery_method: o.deliveryMethod || '',
+            delivery_type: o.deliveryType || 'قدوم شخصي',
+            delivery_zone: o.deliveryZone || '',
+            delivery_fee: Number(o.deliveryFee) || 0,
+            fabric_id: o.fabricId || null,
+            fabric_meters: o.fabricMeters ? Number(o.fabricMeters) : null,
+            fabric_name: o.fabricName || null,
+            notes: packedNotes,
+            created_at_ms: o.createdAt || Date.now()
+          };
+        });
         
         const { error: ordErr } = await supabase.from('orders').upsert(mappedOrders);
         if (ordErr) {
-          const minimalOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, fabric_id, fabric_meters, ...rest }: any) => rest);
+          const minimalOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, fabric_id, fabric_meters, fabric_name, ...rest }: any) => rest);
           await supabase.from('orders').upsert(minimalOrders);
         }
 
         const inClause = `(${orderIds.map(id => `"${id}"`).join(',')})`;
-        await supabase.from('orders').delete().eq('user_id', userId).not('id', 'in', inClause);
+        await supabase.from('orders').delete().not('id', 'in', inClause);
       }
     } catch (orderErr) {
       console.warn('Orders cloud sync note:', orderErr);
@@ -372,7 +386,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         await supabase.from('expenses').upsert(mappedExpenses);
 
         const inClause = `(${expenseIds.map(id => `"${id}"`).join(',')})`;
-        await supabase.from('expenses').delete().eq('user_id', userId).not('id', 'in', inClause);
+        await supabase.from('expenses').delete().not('id', 'in', inClause);
       }
     } catch (expErr) {
       console.warn('Expenses cloud sync note:', expErr);
@@ -390,6 +404,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           if (f.costPrice !== undefined) metaPayload.costPrice = f.costPrice;
           if (f.season) metaPayload.season = f.season;
           if (f.description) metaPayload.description = f.description;
+          if (f.price !== undefined) metaPayload.price = Number(f.price) || 0;
           
           const packedBarcode = Object.keys(metaPayload).length > 0
             ? JSON.stringify(metaPayload)
@@ -400,7 +415,6 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
             user_id: userId,
             name: f.name || '',
             quantity: Number(f.quantity) || 0,
-            price: Number(f.price) || 0,
             category: f.category || '',
             image_url: f.imageUrl || f.image || '',
             barcode: packedBarcode
@@ -409,7 +423,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         await supabase.from('inventory').upsert(mappedInventory);
 
         const inClause = `(${inventoryIds.map(id => `"${id}"`).join(',')})`;
-        await supabase.from('inventory').delete().eq('user_id', userId).not('id', 'in', inClause).neq('id', '__store_settings__');
+        await supabase.from('inventory').delete().not('id', 'in', inClause).neq('id', '__store_settings__');
       }
     } catch (invErr) {
       console.warn('Inventory cloud sync note:', invErr);
@@ -432,7 +446,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
         await supabase.from('custom_profits').upsert(mappedProfits);
 
         const inClause = `(${profitIds.map(id => `"${id}"`).join(',')})`;
-        await supabase.from('custom_profits').delete().eq('user_id', userId).not('id', 'in', inClause);
+        await supabase.from('custom_profits').delete().not('id', 'in', inClause);
       }
     } catch {
       // safe fallback
@@ -585,7 +599,7 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
                     id: String(f.id),
                     name: f.name || '',
                     quantity: Number(f.quantity || 0),
-                    price: Number(f.price || 0),
+                    price: Number(parsedMeta.price ?? f.price ?? 0),
                     category: f.category || '',
                     imageUrl: f.image_url || f.imageUrl || '',
                     image: f.image_url || f.image || '',
@@ -611,26 +625,45 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
             ]);
 
             if (!ordersRes.error && Array.isArray(ordersRes.data)) {
-              cloudOrders = ordersRes.data.map((o: any) => ({
-                id: o.id,
-                customerName: o.customer_name || o.customerName || '',
-                phone: o.phone || '',
-                details: o.details || '',
-                price: Number(o.price || o.total || 0),
-                total: Number(o.total || o.price || 0),
-                status: o.status || 'قيد التجهيز',
-                paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
-                paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
-                deliveryMethod: o.delivery_method || o.deliveryMethod || '',
-                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
-                deliveryZone: o.delivery_zone || o.deliveryZone || '',
-                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
-                notes: o.notes || '',
-                fabricId: o.fabric_id || o.fabricId || undefined,
-                fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
-                fabricName: o.fabric_name || o.fabricName || undefined,
-                createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
-              }));
+              cloudOrders = ordersRes.data.map((o: any) => {
+                let notes = o.notes || '';
+                let paymentStatus: any = o.payment_status || o.paymentStatus || 'تم الدفع';
+                let governorate = o.governorate;
+                let area = o.area;
+                const metaMatch = notes.match(/<!--nasjah_meta:(.*?)-->/);
+                if (metaMatch) {
+                  try {
+                    const parsed = JSON.parse(metaMatch[1]);
+                    if (parsed.paymentStatus) paymentStatus = parsed.paymentStatus;
+                    if (parsed.governorate) governorate = parsed.governorate;
+                    if (parsed.area) area = parsed.area;
+                  } catch {}
+                  notes = notes.replace(/<!--nasjah_meta:(.*?)-->/g, '').trim();
+                }
+
+                return {
+                  id: o.id,
+                  customerName: o.customer_name || o.customerName || '',
+                  phone: o.phone || '',
+                  details: o.details || '',
+                  price: Number(o.price || o.total || 0),
+                  total: Number(o.total || o.price || 0),
+                  status: o.status || 'قيد التجهيز',
+                  paymentStatus,
+                  paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
+                  deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+                  deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+                  deliveryZone: o.delivery_zone || o.deliveryZone || '',
+                  deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
+                  governorate,
+                  area,
+                  notes,
+                  fabricId: o.fabric_id || o.fabricId || undefined,
+                  fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
+                  fabricName: o.fabric_name || o.fabricName || undefined,
+                  createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
+                };
+              });
             }
 
             if (!expRes.error && Array.isArray(expRes.data)) {
@@ -760,12 +793,9 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
       const finalOrders = cloudOrders !== null ? cloudOrders : (cloudStore.orders || []);
       const finalExpenses = mergeExpensesWithSeed(cloudExpenses || cloudStore.expenses || []);
 
-      // Inventory: whatever fabrics are in cloudInventory are the truth. Ensure packaging items exist.
-      const baseInventory = cloudInventory !== null ? cloudInventory : (cloudStore.inventory || SEED_INVENTORY);
-      const inventoryMap = new Map<string, Fabric>();
-      SEED_INVENTORY.forEach(item => inventoryMap.set(item.id, item));
-      baseInventory.forEach(item => inventoryMap.set(item.id, item));
-      const mergedInventory = Array.from(inventoryMap.values());
+      // Inventory: whatever fabrics are in cloudInventory from database are the absolute truth.
+      // Do NOT resurrect deleted fabrics or overwrite stock with SEED_INVENTORY.
+      const mergedInventory = cloudInventory !== null ? cloudInventory : (cloudStore.inventory || SEED_INVENTORY);
 
       // STEP 4: Settings Priority - database settings always win over stale local storage
       const effectiveSettings: StoreSettings = cloudSettings || cloudStore.settings || getLocalStoreSettings() || DEFAULT_STORE_SETTINGS;
@@ -836,16 +866,10 @@ export async function deleteOrderPermanently(orderId: string): Promise<Order[]> 
   saveCachedStore(cloudStore);
   notifyDataChanged();
 
-  // 1. Direct delete from Supabase table
+  // 1. Direct delete from Supabase table - absolute admin authority
   if (supabase) {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (userId) {
-        await supabase.from('orders').delete().eq('id', orderId).eq('user_id', userId);
-      } else {
-        await supabase.from('orders').delete().eq('id', orderId);
-      }
+      await supabase.from('orders').delete().eq('id', orderId);
     } catch (e) {
       console.warn('Supabase order delete note:', e);
     }
@@ -894,16 +918,10 @@ export async function deleteExpensePermanently(expenseId: string): Promise<Expen
   saveCachedStore(cloudStore);
   notifyDataChanged();
 
-  // 1. Direct delete from Supabase table
+  // 1. Direct delete from Supabase table - absolute admin authority
   if (supabase) {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (userId) {
-        await supabase.from('expenses').delete().eq('id', expenseId).eq('user_id', userId);
-      } else {
-        await supabase.from('expenses').delete().eq('id', expenseId);
-      }
+      await supabase.from('expenses').delete().eq('id', expenseId);
     } catch (e) {
       console.warn('Supabase expense delete note:', e);
     }
@@ -970,16 +988,10 @@ export async function deleteFabricPermanently(fabricId: string): Promise<Fabric[
   saveCachedStore(cloudStore);
   notifyDataChanged();
 
-  // 1. Direct delete from Supabase table
+  // 1. Direct delete from Supabase table - absolute admin authority
   if (supabase) {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (userId) {
-        await supabase.from('inventory').delete().eq('id', fabricId).eq('user_id', userId);
-      } else {
-        await supabase.from('inventory').delete().eq('id', fabricId);
-      }
+      await supabase.from('inventory').delete().eq('id', fabricId);
     } catch (e) {
       console.warn('Supabase fabric delete note:', e);
     }
@@ -1005,22 +1017,13 @@ export async function resetDatabase(): Promise<void> {
   saveCachedStore(cloudStore);
   notifyDataChanged();
 
-  // Reset in Supabase
+  // Reset in Supabase - absolute admin authority
   if (supabase) {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (userId) {
-        await Promise.all([
-          supabase.from('orders').delete().eq('user_id', userId),
-          supabase.from('expenses').delete().eq('user_id', userId)
-        ]);
-      } else {
-        await Promise.all([
-          supabase.from('orders').delete().neq('id', ''),
-          supabase.from('expenses').delete().neq('id', '')
-        ]);
-      }
+      await Promise.all([
+        supabase.from('orders').delete().neq('id', ''),
+        supabase.from('expenses').delete().neq('id', '')
+      ]);
     } catch {}
   }
 

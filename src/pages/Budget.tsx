@@ -38,7 +38,7 @@ export default function Budget() {
 
   // 1. Sales calculation: all paid non-cancelled orders + manual profits
   const paidOrders = orders.filter(
-    (o: any) => o.paymentStatus !== 'قيد الدفع' && o.status !== 'ملغي'
+    (o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي'
   );
   
   const ordersSales = paidOrders.reduce(

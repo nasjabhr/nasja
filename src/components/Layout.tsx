@@ -82,7 +82,7 @@ export default function Layout() {
       const pending = orders.filter((o: any) => o.status === 'قيد التجهيز' || o.status === 'جاهز للتسليم').length;
       setPendingOrdersCount(pending);
       const ordersSales = orders
-        .filter((o: any) => o.paymentStatus !== 'قيد الدفع' && o.status !== 'ملغي')
+        .filter((o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي')
         .reduce((sum: number, o: any) => sum + (o.total || o.price || 0), 0);
       const manualProfits = (customProfits || [])
         .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);

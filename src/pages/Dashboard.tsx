@@ -45,7 +45,7 @@ export default function Dashboard() {
 
     // Strictly count paid orders that are NOT cancelled in sales + custom added amounts
     const ordersSales = (local.orders || [])
-      .filter((order: any) => order.paymentStatus !== 'قيد الدفع' && order.status !== 'ملغي')
+      .filter((order: any) => order.paymentStatus === 'تم الدفع' && order.status !== 'ملغي')
       .reduce((sum: number, order: any) => sum + (order.total || order.price || 0), 0) || 0;
     
     const addedFundsTotal = (local.customProfits || [])
@@ -55,7 +55,7 @@ export default function Dashboard() {
     setSales(totalSales);
 
     const pendingSales = (local.orders || [])
-      .filter((order: any) => order.paymentStatus === 'قيد الدفع' && order.status !== 'ملغي')
+      .filter((order: any) => (order.paymentStatus === 'قيد الدفع' || order.paymentStatus === 'آجل') && order.status !== 'ملغي')
       .reduce((sum: number, order: any) => sum + (order.total || order.price || 0), 0) || 0;
     setPendingPaymentSales(pendingSales);
 
@@ -213,9 +213,9 @@ export default function Dashboard() {
                 إجمالي المبيعات
               </span>
               <span className="text-[9px] sm:text-[10px] text-[#1D3A30]/65 block font-medium mt-0.5">
-                {orders.filter((o: any) => o.paymentStatus !== 'قيد الدفع' && o.status !== 'ملغي').length} طلب محصل
+                {orders.filter((o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي').length} طلب محصل
                 {pendingPaymentSales > 0 && (
-                  <span className="text-amber-800 font-bold mr-1">• {pendingPaymentSales.toFixed(1)} قيد الدفع</span>
+                  <span className="text-amber-800 font-bold mr-1">• {pendingPaymentSales.toFixed(2)} معلّق/آجل</span>
                 )}
               </span>
             </div>

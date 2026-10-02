@@ -1,6 +1,6 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.1.0';
 export const APP_BUILD_DATE = '2026.10.03';
 
 // Universal cache invalidation check for browsers and service workers

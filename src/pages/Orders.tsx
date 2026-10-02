@@ -43,7 +43,7 @@ export default function Orders() {
   // Search and filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'تم الدفع' | 'قيد الدفع'>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'تم الدفع' | 'قيد الدفع' | 'آجل'>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [showDateFilter, setShowDateFilter] = useState<boolean>(false);
@@ -529,7 +529,10 @@ export default function Orders() {
     if (e) e.stopPropagation();
     const updated = orders.map(o => {
       if (o.id === id) {
-        const nextPayment: PaymentStatus = o.paymentStatus === 'قيد الدفع' ? 'تم الدفع' : 'قيد الدفع';
+        let nextPayment: PaymentStatus;
+        if (o.paymentStatus === 'تم الدفع') nextPayment = 'قيد الدفع';
+        else if (o.paymentStatus === 'قيد الدفع') nextPayment = 'آجل';
+        else nextPayment = 'تم الدفع';
         return { ...o, paymentStatus: nextPayment };
       }
       return o;
@@ -576,9 +579,7 @@ export default function Orders() {
     }
 
     if (paymentStatusFilter !== 'all') {
-      const isPaid = (o.paymentStatus !== 'قيد الدفع');
-      if (paymentStatusFilter === 'تم الدفع' && !isPaid) return false;
-      if (paymentStatusFilter === 'قيد الدفع' && isPaid) return false;
+      if (o.paymentStatus !== paymentStatusFilter) return false;
     }
 
     if (startDate) {
@@ -595,14 +596,15 @@ export default function Orders() {
   });
 
   const paidRevenue = orders
-    .filter(o => o.paymentStatus !== 'قيد الدفع')
+    .filter(o => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي')
     .reduce((sum, o) => sum + (Number(o.total || o.price) || 0), 0);
   const pendingPaymentRevenue = orders
-    .filter(o => o.paymentStatus === 'قيد الدفع')
+    .filter(o => (o.paymentStatus === 'قيد الدفع' || o.paymentStatus === 'آجل') && o.status !== 'ملغي')
     .reduce((sum, o) => sum + (Number(o.total || o.price) || 0), 0);
-  const pendingPaymentCount = orders.filter(o => o.paymentStatus === 'قيد الدفع').length;
-  const paidOrdersCount = orders.length - pendingPaymentCount;
-  const pendingCount = orders.filter(o => o.status === 'قيد التجهيز' || !o.status).length;
+  const pendingPaymentCount = orders.filter(o => o.paymentStatus === 'قيد الدفع' && o.status !== 'ملغي').length;
+  const creditPaymentCount = orders.filter(o => o.paymentStatus === 'آجل' && o.status !== 'ملغي').length;
+  const paidOrdersCount = orders.filter(o => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي').length;
+  const pendingCount = orders.filter(o => (o.status === 'قيد التجهيز' || !o.status) && o.status !== 'ملغي').length;
   const isDateFiltered = Boolean(startDate || endDate);
 
   return (
@@ -612,10 +614,10 @@ export default function Orders() {
         <div>
           <h1 className="text-base font-extrabold text-[#1D3A30]">الطلبات</h1>
           <p className="text-[11px] text-[#1D3A30]/70 font-medium">
-            {orders.length} طلب • {paidRevenue.toFixed(2)} د.ب
-            {pendingPaymentCount > 0 && (
+            {orders.length} طلب • {paidRevenue.toFixed(2)} د.ب محصّل
+            {(pendingPaymentCount > 0 || creditPaymentCount > 0) && (
               <span className="text-amber-800 font-bold mr-1.5">
-                • {pendingPaymentRevenue.toFixed(2)} د.ب قيد الدفع
+                • {pendingPaymentRevenue.toFixed(2)} د.ب معلّق/آجل
               </span>
             )}
           </p>
@@ -691,6 +693,19 @@ export default function Orders() {
           >
             <Clock className="w-3 h-3 text-amber-600" />
             <span>قيد الدفع ({pendingPaymentCount})</span>
+          </button>
+
+          {/* Payment status filter: Credit / Ajel */}
+          <button
+            onClick={() => setPaymentStatusFilter(paymentStatusFilter === 'آجل' ? 'all' : 'آجل')}
+            className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition flex items-center gap-1 cursor-pointer ${
+              paymentStatusFilter === 'آجل'
+                ? 'bg-purple-800 text-white shadow-xs'
+                : 'bg-white text-purple-800 border border-purple-300 hover:bg-purple-50'
+            }`}
+          >
+            <Clock className="w-3 h-3 text-purple-600" />
+            <span>آجل ({creditPaymentCount})</span>
           </button>
 
           <button
@@ -874,20 +889,27 @@ export default function Orders() {
                       <span>{order.status || 'قيد التجهيز'}</span>
                     </button>
 
-                    {/* Payment Status button (1-tap to toggle paid vs pending) */}
+                    {/* Payment Status button (1-tap to cycle paid -> pending -> credit) */}
                     <button
                       onClick={(e) => handleTogglePaymentStatus(order.id, e)}
                       className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 transition active:scale-95 border cursor-pointer ${
                         order.paymentStatus === 'قيد الدفع'
                           ? 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200 shadow-2xs'
+                          : order.paymentStatus === 'آجل'
+                          ? 'bg-purple-100 text-purple-950 border-purple-300 hover:bg-purple-200 shadow-2xs'
                           : 'bg-emerald-100 text-emerald-950 border-emerald-300 hover:bg-emerald-200 shadow-2xs'
                       }`}
-                      title={order.paymentStatus === 'قيد الدفع' ? 'قيد الدفع: اضغط للتحويل لتم الدفع وإدراجه في الأرباح فوراً' : 'تم الدفع: محسوب في الأرباح (اضغط للتحويل لقيد الدفع)'}
+                      title={order.paymentStatus === 'تم الدفع' ? 'تم الدفع: محسوب في الأرباح (اضغط للتغيير)' : order.paymentStatus === 'قيد الدفع' ? 'قيد الدفع: معلّق (اضغط للتغيير لـ آجل)' : 'آجل (دين): معلّق (اضغط للتحويل لـ تم الدفع)'}
                     >
                       {order.paymentStatus === 'قيد الدفع' ? (
                         <>
                           <Clock className="w-3 h-3 text-amber-700 animate-pulse" />
                           <span>قيد الدفع</span>
+                        </>
+                      ) : order.paymentStatus === 'آجل' ? (
+                        <>
+                          <Clock className="w-3 h-3 text-purple-700" />
+                          <span>آجل (دين)</span>
                         </>
                       ) : (
                         <>
@@ -1445,33 +1467,47 @@ export default function Orders() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
                       type="button"
                       onClick={() => setOrderForm({ ...orderForm, paymentStatus: 'تم الدفع' })}
                       className={cn(
-                        "p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98",
+                        "p-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-98",
                         orderForm.paymentStatus === 'تم الدفع'
                           ? "bg-emerald-800 text-white border-emerald-800 shadow-xs ring-1 ring-emerald-600"
                           : "bg-white text-emerald-900 border-emerald-300 hover:bg-emerald-50"
                       )}
                     >
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
-                      <span>تم الدفع (مقبوض)</span>
+                      <span>تم الدفع</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setOrderForm({ ...orderForm, paymentStatus: 'قيد الدفع' })}
                       className={cn(
-                        "p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98",
+                        "p-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-98",
                         orderForm.paymentStatus === 'قيد الدفع'
                           ? "bg-amber-800 text-white border-amber-800 shadow-xs ring-1 ring-amber-600"
                           : "bg-white text-amber-900 border-amber-300 hover:bg-amber-50"
                       )}
                     >
                       <Clock className="w-3.5 h-3.5 text-amber-300" />
-                      <span>قيد الدفع (معلّق)</span>
+                      <span>قيد الدفع</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setOrderForm({ ...orderForm, paymentStatus: 'آجل' })}
+                      className={cn(
+                        "p-2 rounded-lg border text-[11px] font-bold flex items-center justify-center gap-1 transition cursor-pointer active:scale-98",
+                        orderForm.paymentStatus === 'آجل'
+                          ? "bg-purple-800 text-white border-purple-800 shadow-xs ring-1 ring-purple-600"
+                          : "bg-white text-purple-900 border-purple-300 hover:bg-purple-50"
+                      )}
+                    >
+                      <Clock className="w-3.5 h-3.5 text-purple-300" />
+                      <span>آجل (دين)</span>
                     </button>
                   </div>
                 </div>
@@ -1712,6 +1748,11 @@ export default function Orders() {
                     <span className="text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
                       <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
                       <span>قيد الدفع (معلّق)</span>
+                    </span>
+                  ) : selectedInvoice.paymentStatus === 'آجل' ? (
+                    <span className="text-purple-900 bg-purple-100 border border-purple-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-purple-600" />
+                      <span>آجل (ذمة)</span>
                     </span>
                   ) : (
                     <span className="text-emerald-900 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">

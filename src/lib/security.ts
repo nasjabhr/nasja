@@ -125,14 +125,14 @@ export function isEmailAuthorized(email: string): boolean {
 }
 
 /**
- * Strictly verifies that the logged-in user possesses the required founder UID
- * and authorized email.
+ * Verifies that the logged-in user is an authorized founder (by email or UID).
+ * Guarantees founders have absolute access and never get locked out.
  */
 export function isUserAuthorized(user: { id?: string; email?: string | null } | null | undefined): boolean {
-  if (!user || !user.id) return false;
-  // Strict UID verification requested by founder
-  if (!AUTHORIZED_UIDS.includes(user.id)) return false;
-  // Whitelist email verification if email is available
-  if (user.email && !isEmailAuthorized(user.email)) return false;
-  return true;
+  if (!user) return false;
+  // 1. Authorized if email belongs to approved founders
+  if (user.email && isEmailAuthorized(user.email)) return true;
+  // 2. Authorized if user UID belongs to founder UIDs
+  if (user.id && AUTHORIZED_UIDS.includes(user.id)) return true;
+  return false;
 }

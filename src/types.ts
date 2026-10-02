@@ -46,7 +46,7 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
 };
 
 export type OrderStatus = 'قيد التجهيز' | 'جاهز للتسليم' | 'تم التسليم' | 'ملغي';
-export type PaymentStatus = 'تم الدفع' | 'قيد الدفع';
+export type PaymentStatus = 'تم الدفع' | 'قيد الدفع' | 'آجل';
 export type PaymentMethod = 'بنفت بي' | 'نقداً' | 'بطاقة دفع' | 'أخرى';
 export type DeliveryType = 'قدوم شخصي' | 'توصيل';
 
@@ -213,11 +213,15 @@ export interface CustomProfit {
 export const CRITICAL_FABRIC_THRESHOLD = 3.0;
 
 export const isOrderPaid = (order: { paymentStatus?: PaymentStatus | string; status?: OrderStatus | string }): boolean => {
-  return order.paymentStatus !== 'قيد الدفع' && order.status !== 'ملغي';
+  return order.paymentStatus === 'تم الدفع' && order.status !== 'ملغي';
 };
 
 export const isOrderValidRevenue = (order: { paymentStatus?: PaymentStatus | string; status?: OrderStatus | string }): boolean => {
-  return order.paymentStatus !== 'قيد الدفع' && order.status !== 'ملغي';
+  return order.paymentStatus === 'تم الدفع' && order.status !== 'ملغي';
+};
+
+export const isOrderPendingPayment = (order: { paymentStatus?: PaymentStatus | string; status?: OrderStatus | string }): boolean => {
+  return (order.paymentStatus === 'قيد الدفع' || order.paymentStatus === 'آجل') && order.status !== 'ملغي';
 };
 
 export interface Expense {
