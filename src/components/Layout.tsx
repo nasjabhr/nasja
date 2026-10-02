@@ -27,19 +27,32 @@ export default function Layout() {
     if (isSyncingData) return;
     setIsSyncingData(true);
     try {
-      await syncWithServer();
-      updateBadges();
-      // Ensure any service worker caches or stale files are bypassed and page is refreshed
+      // 1. Purge all Service Workers
       if ('serviceWorker' in navigator) {
         const registrations = await navigator.serviceWorker.getRegistrations();
         for (const registration of registrations) {
-          await registration.update().catch(() => {});
+          await registration.unregister().catch(() => {});
         }
       }
+      // 2. Obliterate all CacheStorage
       if ('caches' in window) {
         const cacheNames = await caches.keys();
         await Promise.all(cacheNames.map(name => caches.delete(name))).catch(() => {});
       }
+      // 3. Purge stale storage keys
+      try {
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && (k.startsWith('nasjah_offline_store') || k.startsWith('nasjah_store_data') || k.startsWith('nasjah_cached_'))) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch (_) {}
+
+      await syncWithServer(true);
+      updateBadges();
       // Force reload from server bypassing browser cache
       window.location.reload();
     } catch {

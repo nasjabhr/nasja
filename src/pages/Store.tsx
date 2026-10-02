@@ -222,7 +222,10 @@ export default function Store() {
 
       // 1b. Fetch store settings from server API (when running with Express backend)
       try {
-        const sRes = await fetch(`/api/store-settings?t=${Date.now()}`);
+        const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json' }
+        });
         if (sRes.ok) {
           const contentType = sRes.headers.get('content-type') || '';
           if (contentType.includes('application/json')) {
@@ -245,14 +248,9 @@ export default function Store() {
         }
       } catch {}
 
-      // 1c. Reconcile with local cached settings
+      // 1c. Reconcile settings: Supabase Database has absolute priority over stale local cache
       const localCached = getLocalStoreSettings();
-      const localTime = localCached?.updatedAt || 0;
-      const cloudTime = resolvedSettings?.updatedAt || 0;
-
-      const finalSettings: StoreSettings = (localCached && localTime >= cloudTime && localTime > 0) 
-        ? localCached 
-        : (resolvedSettings || localCached || DEFAULT_STORE_SETTINGS);
+      const finalSettings: StoreSettings = resolvedSettings || localCached || DEFAULT_STORE_SETTINGS;
 
       setStoreSettings(finalSettings);
       try {
@@ -314,7 +312,10 @@ export default function Store() {
 
       // 3. Query /api/public-catalog (for full-stack dev / local server / cloud run)
       try {
-        const res = await fetch(`/api/public-catalog?t=${Date.now()}`);
+        const res = await fetch(`/api/public-catalog?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json' }
+        });
         if (res.ok) {
           const data = await res.json();
           if (!fabricsFound && data.catalog && Array.isArray(data.catalog) && data.catalog.length > 0) {
@@ -345,7 +346,10 @@ export default function Store() {
       // 4. Fallback to /api/store-data if still not populated
       if (!fabricsFound) {
         try {
-          const fallbackRes = await fetch(`/api/store-data?t=${Date.now()}`);
+          const fallbackRes = await fetch(`/api/store-data?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: { 'Accept': 'application/json' }
+          });
           if (fallbackRes.ok) {
             const data = await fallbackRes.json();
             if (data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0) {

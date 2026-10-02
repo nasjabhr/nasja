@@ -23,9 +23,9 @@ async function startServer() {
   const PORT = 3000;
   const httpServer = http.createServer(app);
 
-  // Anti-stale cache middleware for HTML and API responses
+  // Anti-stale zero-cache middleware for ALL requests and responses
   app.use((req, res, next) => {
-    res.setHeader('X-App-Version', '2.4.0');
+    res.setHeader('X-App-Version', '3.0.0');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
@@ -34,17 +34,10 @@ async function startServer() {
       return res.sendStatus(204);
     }
 
-    if (
-      req.url === '/' ||
-      req.url.endsWith('.html') ||
-      req.url.startsWith('/api/') ||
-      req.url.includes('sw.js') ||
-      req.url.includes('manifest')
-    ) {
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-    }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
     next();
   });
 
@@ -590,8 +583,19 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, {
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+      }
+    }));
     app.get("*", (req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

@@ -11,11 +11,11 @@
   ],
   "headers": [
     {
-      "source": "/(.*).html",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate, max-age=0"
+          "value": "no-cache, no-store, must-revalidate, max-age=0, s-maxage=0"
         },
         {
           "key": "Pragma",
@@ -24,41 +24,10 @@
         {
           "key": "Expires",
           "value": "0"
-        }
-      ]
-    },
-    {
-      "source": "/",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate, max-age=0"
         },
         {
-          "key": "Pragma",
-          "value": "no-cache"
-        },
-        {
-          "key": "Expires",
-          "value": "0"
-        }
-      ]
-    },
-    {
-      "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate, max-age=0"
-        }
-      ]
-    },
-    {
-      "source": "/registerSW.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-cache, no-store, must-revalidate, max-age=0"
+          "key": "Surrogate-Control",
+          "value": "no-store"
         }
       ]
     }

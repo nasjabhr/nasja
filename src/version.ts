@@ -1,58 +1,51 @@
-// Application Version and Cache Busting Engine
-// Incremented to force browsers, PWAs, and Service Workers to flush outdated assets
-export const APP_VERSION = '2.8.0';
-export const APP_BUILD_DATE = '2026.10.02';
+// Application Version and Strict Anti-Cache Engine
+// Incremented to force browsers, PWAs, and caches to flush completely
+export const APP_VERSION = '3.0.0';
+export const APP_BUILD_DATE = '2026.10.03';
 
-// Auto cache invalidation check for browsers and service workers
+// Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {
   try {
     const STORAGE_KEY = 'nasjah_internal_build_v';
     const lastVersion = localStorage.getItem(STORAGE_KEY);
     
-    // Purge whenever lastVersion does not match current version (including first run or upgrade)
-    if (!lastVersion || lastVersion !== APP_VERSION) {
-      console.log(`[Nasjah Auto-Updater] Upgrading to version ${APP_VERSION} (previous: ${lastVersion})...`);
-
-      // 1. Purge all outdated local storage data caches
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (
-          k.startsWith('nasjah_offline_store') || 
-          k.startsWith('nasjah_store_data') || 
-          k.startsWith('nasjah_cached_')
-        )) {
-          keysToRemove.push(k);
-        }
-      }
-      keysToRemove.forEach(k => {
-        try { localStorage.removeItem(k); } catch (_) {}
-      });
-
-      // 2. Set new version marker immediately
-      localStorage.setItem(STORAGE_KEY, APP_VERSION);
-
-      // 3. Purge all browser CacheStorage instances (service worker caches)
-      if ('caches' in window) {
-        caches.keys().then((names) => {
-          Promise.all(names.map((name) => caches.delete(name))).then(() => {
-            // 4. Unregister existing service workers to fetch fresh bundle
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then((registrations) => {
-                Promise.all(registrations.map(r => r.unregister())).then(() => {
-                  window.location.reload();
-                });
-              });
-            } else {
-              window.location.reload();
-            }
-          });
-        });
-        return;
+    // 1. Purge all outdated local storage data caches
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (
+        k.startsWith('nasjah_offline_store') || 
+        k.startsWith('nasjah_store_data') || 
+        k.startsWith('nasjah_cached_')
+      )) {
+        keysToRemove.push(k);
       }
     }
-    
+    keysToRemove.forEach(k => {
+      try { localStorage.removeItem(k); } catch (_) {}
+    });
+
     localStorage.setItem(STORAGE_KEY, APP_VERSION);
+
+    // 2. Obliterate all browser CacheStorage instances (service worker caches)
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      caches.keys().then((names) => {
+        Promise.all(names.map((name) => caches.delete(name))).catch(() => {});
+      }).catch(() => {});
+    }
+
+    // 3. Unregister all existing service workers immediately
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach(r => r.unregister().catch(() => {}));
+      }).catch(() => {});
+    }
+
+    // 4. If upgrading from older version (e.g. 2.8.0), reload once to run clean code
+    if (lastVersion && lastVersion !== APP_VERSION) {
+      console.log(`[Nasjah Auto-Updater] Upgraded from ${lastVersion} to ${APP_VERSION}. Reloading clean...`);
+      window.location.reload();
+    }
   } catch (err) {
     // Silent fail if localStorage is restricted
   }

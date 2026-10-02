@@ -218,24 +218,7 @@ export function mergeExpensesWithSeed(existingExpenses?: Expense[] | null): Expe
 }
 
 function loadCachedStore(): StoreData {
-  if (typeof window !== 'undefined') {
-    try {
-      const raw = localStorage.getItem(CACHE_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
-            expenses: mergeExpensesWithSeed(parsed.expenses),
-            inventory: Array.isArray(parsed.inventory) && parsed.inventory.length > 0 ? parsed.inventory : SEED_INVENTORY,
-            capital: typeof parsed.capital === 'number' ? parsed.capital : 0,
-            customProfits: Array.isArray(parsed.customProfits) ? parsed.customProfits : [],
-            settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : DEFAULT_STORE_SETTINGS
-          };
-        }
-      }
-    } catch {}
-  }
+  // Pure in-memory default store - zero stale cache loaded from disk
   return {
     orders: [],
     expenses: mergeExpensesWithSeed([]),
@@ -246,29 +229,45 @@ function loadCachedStore(): StoreData {
   };
 }
 
-function saveCachedStore(data: StoreData): void {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify({
-        orders: data.orders || [],
-        expenses: mergeExpensesWithSeed(data.expenses),
-        inventory: data.inventory && data.inventory.length > 0 ? data.inventory : SEED_INVENTORY,
-        capital: data.capital || 0,
-        customProfits: data.customProfits || [],
-        settings: data.settings || DEFAULT_STORE_SETTINGS,
-        version: APP_VERSION,
-        cachedAt: Date.now()
-      }));
-    } catch {}
-  }
+function saveCachedStore(_data: StoreData): void {
+  // Anti-cache directive: never persist stale business records to localStorage
 }
 
-// In-memory runtime store - immediately hydrated from version-specific persistent cache
+// In-memory runtime store - starts fresh and populates purely from live database
 let cloudStore: StoreData = loadCachedStore();
 
-let isSyncing = false;
+let activeSyncPromise: Promise<StoreData> | null = null;
 let realtimeChannelSubscribed = false;
 let isInitialCloudLoadComplete = false;
+
+// Purge any stale storage keys on module load and register auto-refresh on focus
+if (typeof window !== 'undefined') {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (
+        k.startsWith('nasjah_offline_store') || 
+        k.startsWith('nasjah_store_data') || 
+        k.startsWith('nasjah_cached_')
+      )) {
+        keysToRemove.push(k);
+      }
+    }
+    keysToRemove.forEach(k => {
+      try { localStorage.removeItem(k); } catch (_) {}
+    });
+  } catch (_) {}
+
+  window.addEventListener('focus', () => {
+    syncWithServer(true).catch(() => {});
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      syncWithServer(true).catch(() => {});
+    }
+  });
+}
 
 export function notifyDataChanged() {
   if (typeof window !== 'undefined') {
@@ -501,325 +500,309 @@ export function setupRealtimeSubscription() {
 }
 
 /**
- * Fetches latest records purely from Supabase Cloud and/or cloud server backend.
- * Zero data is lost: merges cloud tables, user metadata, backend API, and offline cache.
+ * Fetches latest records purely from Supabase Cloud and cloud server backend.
+ * Zero stale cache: live database is the absolute source of truth.
+ * Reloading the page or calling syncWithServer always re-queries the database fresh.
  */
-export async function syncWithServer(): Promise<StoreData> {
-  if (isSyncing) return cloudStore;
-  isSyncing = true;
+export function syncWithServer(forceFresh = false): Promise<StoreData> {
+  if (activeSyncPromise && !forceFresh) {
+    return activeSyncPromise;
+  }
 
-  try {
-    setupRealtimeSubscription();
-
-    let cloudOrders: Order[] | null = null;
-    let cloudExpenses: Expense[] | null = null;
-    let cloudInventory: Fabric[] | null = null;
-    let cloudCustomProfits: CustomProfit[] | null = null;
-    let cloudCapital: number | null = null;
-    let cloudSettings: StoreSettings | null = null;
-
-    let activeSession: any = null;
-
-    // STEP 1: Attempt to load from Supabase Cloud directly
-    if (supabase) {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        activeSession = sessionData?.session;
-      } catch {}
-
-      try {
-        // A. Query __store_settings__ from inventory table (guaranteed public read access across all platforms)
-        try {
-          const { data: invRow } = await supabase
-            .from('inventory')
-            .select('image_url')
-            .eq('id', '__store_settings__')
-            .maybeSingle();
-
-          if (invRow?.image_url) {
-            const parsed = JSON.parse(invRow.image_url);
-            if (parsed && typeof parsed === 'object') {
-              cloudSettings = {
-                ...DEFAULT_STORE_SETTINGS,
-                ...parsed,
-                seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
-                  ? parsed.seasonsOrder
-                  : ['winter', 'summer', 'spring']
-              };
-            }
-          }
-        } catch {}
-
-        // B. Query dedicated store_settings table if it exists
-        try {
-          const { data: stData, error: stErr } = await supabase
-            .from('store_settings')
-            .select('settings, updated_at')
-            .order('updated_at', { ascending: false })
-            .limit(1);
-
-          if (!stErr && stData && stData.length > 0 && stData[0]?.settings) {
-            cloudSettings = {
-              ...DEFAULT_STORE_SETTINGS,
-              ...(cloudSettings || {}),
-              ...stData[0].settings
-            };
-          }
-        } catch {}
-
-        // C. Direct query for inventory
-        try {
-          const invRes = await supabase.from('inventory').select('*');
-          if (!invRes.error && Array.isArray(invRes.data) && invRes.data.length > 0) {
-            cloudInventory = invRes.data
-              .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
-              .map((f: any) => {
-                let parsedMeta: any = {};
-                if (f.barcode && typeof f.barcode === 'string' && f.barcode.startsWith('{')) {
-                  try { parsedMeta = JSON.parse(f.barcode); } catch {}
-                }
-
-                return {
-                  id: String(f.id),
-                  name: f.name || '',
-                  quantity: Number(f.quantity || 0),
-                  price: Number(f.price || 0),
-                  category: f.category || '',
-                  imageUrl: f.image_url || f.imageUrl || '',
-                  image: f.image_url || f.image || '',
-                  barcode: f.barcode || '',
-                  season: parsedMeta.season || f.season || '',
-                  description: parsedMeta.description || f.description || '',
-                  sourcingType: parsedMeta.sourcingType || f.sourcingType || 'stock',
-                  supplierName: parsedMeta.supplierName || f.supplierName || '',
-                  catalogCode: parsedMeta.catalogCode || f.catalogCode || '',
-                  costPrice: Number(parsedMeta.costPrice ?? f.costPrice ?? 0)
-                };
-              });
-          }
-        } catch (invErr) {
-          console.warn('Inventory direct fetch note:', invErr);
-        }
-
-        // D. Queries for Orders, Expenses & Profits
-        try {
-          const [ordersRes, expRes] = await Promise.all([
-            supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
-            supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
-          ]);
-
-          if (!ordersRes.error && Array.isArray(ordersRes.data) && ordersRes.data.length > 0) {
-            cloudOrders = ordersRes.data.map((o: any) => ({
-              id: o.id,
-              customerName: o.customer_name || o.customerName || '',
-              phone: o.phone || '',
-              details: o.details || '',
-              price: Number(o.price || o.total || 0),
-              total: Number(o.total || o.price || 0),
-              status: o.status || 'قيد التجهيز',
-              paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
-              paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
-              deliveryMethod: o.delivery_method || o.deliveryMethod || '',
-              deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
-              deliveryZone: o.delivery_zone || o.deliveryZone || '',
-              deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
-              notes: o.notes || '',
-              fabricId: o.fabric_id || o.fabricId || undefined,
-              fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
-              fabricName: o.fabric_name || o.fabricName || undefined,
-              createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
-            }));
-          }
-
-          if (!expRes.error && Array.isArray(expRes.data) && expRes.data.length > 0) {
-            cloudExpenses = mergeExpensesWithSeed(expRes.data.map((e: any) => ({
-              id: String(e.id),
-              description: e.description || '',
-              amount: Number(e.amount || 0),
-              category: e.category || 'أقمشة ومستلزمات المخزون',
-              paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
-              paidTo: e.paid_to || e.paidTo || '',
-              notes: e.notes || '',
-              createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-            })));
-          }
-        } catch (tableErr) {
-          console.warn('Orders/Expenses query note:', tableErr);
-        }
-
-        try {
-          const { data: profData, error: profErr } = await supabase
-            .from('custom_profits')
-            .select('*')
-            .order('created_at_ms', { ascending: false });
-
-          if (!profErr && Array.isArray(profData) && profData.length > 0) {
-            cloudCustomProfits = profData.map((p: any) => ({
-              id: p.id,
-              amount: Number(p.amount || 0),
-              description: p.description || '',
-              category: p.category || 'أرباح إضافية',
-              date: p.date || '',
-              createdAt: Number(p.created_at_ms || Date.now())
-            }));
-          }
-        } catch {}
-
-        // Metadata fallback if authenticated
-        if (activeSession) {
-          const metaStore = activeSession.user?.user_metadata?.store_data;
-          if (metaStore) {
-            if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(metaStore.orders) && metaStore.orders.length > 0) {
-              cloudOrders = metaStore.orders;
-            }
-            if (Array.isArray(metaStore.expenses) && metaStore.expenses.length > 0) {
-              const metaMerged = mergeExpensesWithSeed(metaStore.expenses);
-              cloudExpenses = cloudExpenses ? mergeExpensesWithSeed([...cloudExpenses, ...metaMerged]) : metaMerged;
-            }
-            if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(metaStore.inventory) && metaStore.inventory.length > 0) {
-              cloudInventory = metaStore.inventory;
-            }
-            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(metaStore.customProfits)) {
-              cloudCustomProfits = metaStore.customProfits;
-            }
-            if (cloudCapital === null && typeof metaStore.capital === 'number') {
-              cloudCapital = metaStore.capital;
-            }
-            if (!cloudSettings && metaStore.settings && typeof metaStore.settings === 'object') {
-              cloudSettings = { ...DEFAULT_STORE_SETTINGS, ...metaStore.settings };
-            }
-          }
-        }
-      } catch (sbErr) {
-        console.warn('Supabase cloud fetch error:', sbErr);
-      }
-    }
-
-    // STEP 2: Query Cloud Server Backend API
+  activeSyncPromise = (async () => {
     try {
-      const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
-        headers: { 'Accept': 'application/json' }
-      });
-      if (sRes.ok) {
-        const contentType = sRes.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const sData = await sRes.json();
-          if (sData?.settings && typeof sData.settings === 'object') {
-            const serverTime = sData.settings.updatedAt || 0;
-            const cloudTime = cloudSettings?.updatedAt || 0;
-            if (!cloudSettings || serverTime >= cloudTime) {
+      setupRealtimeSubscription();
+
+      let cloudOrders: Order[] | null = null;
+      let cloudExpenses: Expense[] | null = null;
+      let cloudInventory: Fabric[] | null = null;
+      let cloudCustomProfits: CustomProfit[] | null = null;
+      let cloudCapital: number | null = null;
+      let cloudSettings: StoreSettings | null = null;
+
+      let activeSession: any = null;
+
+      // STEP 1: Direct fetch from Supabase Cloud
+      if (supabase) {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          activeSession = sessionData?.session;
+        } catch {}
+
+        try {
+          // A. Store Settings from __store_settings__
+          try {
+            const { data: invRow } = await supabase
+              .from('inventory')
+              .select('image_url')
+              .eq('id', '__store_settings__')
+              .maybeSingle();
+
+            if (invRow?.image_url) {
+              const parsed = JSON.parse(invRow.image_url);
+              if (parsed && typeof parsed === 'object') {
+                cloudSettings = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...parsed,
+                  seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
+                    ? parsed.seasonsOrder
+                    : ['winter', 'summer', 'spring']
+                };
+              }
+            }
+          } catch {}
+
+          // B. Store Settings from store_settings table
+          try {
+            const { data: stData, error: stErr } = await supabase
+              .from('store_settings')
+              .select('settings, updated_at')
+              .order('updated_at', { ascending: false })
+              .limit(1);
+
+            if (!stErr && stData && stData.length > 0 && stData[0]?.settings) {
               cloudSettings = {
                 ...DEFAULT_STORE_SETTINGS,
                 ...(cloudSettings || {}),
-                ...sData.settings
+                ...stData[0].settings
               };
             }
+          } catch {}
+
+          // C. Direct query for inventory - Supabase is absolute authority
+          try {
+            const invRes = await supabase.from('inventory').select('*');
+            if (!invRes.error && Array.isArray(invRes.data)) {
+              cloudInventory = invRes.data
+                .filter((f: any) => f.id !== '__store_settings__' && f.category !== '__system__')
+                .map((f: any) => {
+                  let parsedMeta: any = {};
+                  if (f.barcode && typeof f.barcode === 'string' && f.barcode.startsWith('{')) {
+                    try { parsedMeta = JSON.parse(f.barcode); } catch {}
+                  }
+
+                  return {
+                    id: String(f.id),
+                    name: f.name || '',
+                    quantity: Number(f.quantity || 0),
+                    price: Number(f.price || 0),
+                    category: f.category || '',
+                    imageUrl: f.image_url || f.imageUrl || '',
+                    image: f.image_url || f.image || '',
+                    barcode: f.barcode || '',
+                    season: parsedMeta.season || f.season || '',
+                    description: parsedMeta.description || f.description || '',
+                    sourcingType: parsedMeta.sourcingType || f.sourcingType || 'stock',
+                    supplierName: parsedMeta.supplierName || f.supplierName || '',
+                    catalogCode: parsedMeta.catalogCode || f.catalogCode || '',
+                    costPrice: Number(parsedMeta.costPrice ?? f.costPrice ?? 0)
+                  };
+                });
+            }
+          } catch (invErr) {
+            console.warn('Inventory direct fetch note:', invErr);
           }
+
+          // D. Queries for Orders & Expenses - Supabase is absolute authority
+          try {
+            const [ordersRes, expRes] = await Promise.all([
+              supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
+              supabase.from('expenses').select('*').order('created_at_ms', { ascending: false })
+            ]);
+
+            if (!ordersRes.error && Array.isArray(ordersRes.data)) {
+              cloudOrders = ordersRes.data.map((o: any) => ({
+                id: o.id,
+                customerName: o.customer_name || o.customerName || '',
+                phone: o.phone || '',
+                details: o.details || '',
+                price: Number(o.price || o.total || 0),
+                total: Number(o.total || o.price || 0),
+                status: o.status || 'قيد التجهيز',
+                paymentStatus: (o.payment_status || o.paymentStatus || 'تم الدفع') as any,
+                paymentMethod: o.payment_method || o.paymentMethod || 'بنفت بي',
+                deliveryMethod: o.delivery_method || o.deliveryMethod || '',
+                deliveryType: o.delivery_type || o.deliveryType || 'قدوم شخصي',
+                deliveryZone: o.delivery_zone || o.deliveryZone || '',
+                deliveryFee: Number(o.delivery_fee || o.deliveryFee || 0),
+                notes: o.notes || '',
+                fabricId: o.fabric_id || o.fabricId || undefined,
+                fabricMeters: o.fabric_meters ? Number(o.fabric_meters) : (o.fabricMeters ? Number(o.fabricMeters) : undefined),
+                fabricName: o.fabric_name || o.fabricName || undefined,
+                createdAt: Number(o.created_at_ms || (o.created_at ? new Date(o.created_at).getTime() : Date.now()))
+              }));
+            }
+
+            if (!expRes.error && Array.isArray(expRes.data)) {
+              cloudExpenses = mergeExpensesWithSeed(expRes.data.map((e: any) => ({
+                id: String(e.id),
+                description: e.description || '',
+                amount: Number(e.amount || 0),
+                category: e.category || 'أقمشة ومستلزمات المخزون',
+                paymentMethod: e.payment_method || e.paymentMethod || 'بنفت بي',
+                paidTo: e.paid_to || e.paidTo || '',
+                notes: e.notes || '',
+                createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
+              })));
+            }
+          } catch (tableErr) {
+            console.warn('Orders/Expenses query note:', tableErr);
+          }
+
+          // E. Custom profits
+          try {
+            const { data: profData, error: profErr } = await supabase
+              .from('custom_profits')
+              .select('*')
+              .order('created_at_ms', { ascending: false });
+
+            if (!profErr && Array.isArray(profData)) {
+              cloudCustomProfits = profData.map((p: any) => ({
+                id: p.id,
+                amount: Number(p.amount || 0),
+                description: p.description || '',
+                category: p.category || 'أرباح إضافية',
+                date: p.date || '',
+                createdAt: Number(p.created_at_ms || Date.now())
+              }));
+            }
+          } catch {}
+
+          // Metadata fallback if authenticated (only if primary table query returned null)
+          if (activeSession) {
+            const metaStore = activeSession.user?.user_metadata?.store_data;
+            if (metaStore) {
+              if (cloudOrders === null && Array.isArray(metaStore.orders)) {
+                cloudOrders = metaStore.orders;
+              }
+              if (cloudExpenses === null && Array.isArray(metaStore.expenses)) {
+                cloudExpenses = mergeExpensesWithSeed(metaStore.expenses);
+              }
+              if (cloudInventory === null && Array.isArray(metaStore.inventory)) {
+                cloudInventory = metaStore.inventory;
+              }
+              if (cloudCustomProfits === null && Array.isArray(metaStore.customProfits)) {
+                cloudCustomProfits = metaStore.customProfits;
+              }
+              if (cloudCapital === null && typeof metaStore.capital === 'number') {
+                cloudCapital = metaStore.capital;
+              }
+              if (!cloudSettings && metaStore.settings && typeof metaStore.settings === 'object') {
+                cloudSettings = { ...DEFAULT_STORE_SETTINGS, ...metaStore.settings };
+              }
+            }
+          }
+        } catch (sbErr) {
+          console.warn('Supabase cloud fetch error:', sbErr);
         }
       }
-    } catch {}
 
-    // Query backend store data if entities are still empty or null
-    try {
-      const res = await fetch(`/api/store-data?t=${Date.now()}`, {
-        headers: { 'Accept': 'application/json' }
-      });
-      if (res.ok) {
-        const contentType = res.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const serverData = await res.json();
-          if (serverData.success) {
-            if ((!cloudOrders || cloudOrders.length === 0) && Array.isArray(serverData.orders) && serverData.orders.length > 0) {
-              cloudOrders = serverData.orders;
-            }
-            if (Array.isArray(serverData.expenses) && serverData.expenses.length > 0) {
-              const serverMerged = mergeExpensesWithSeed(serverData.expenses);
-              cloudExpenses = cloudExpenses ? mergeExpensesWithSeed([...cloudExpenses, ...serverMerged]) : serverMerged;
-            }
-            if ((!cloudInventory || cloudInventory.length === 0) && Array.isArray(serverData.inventory) && serverData.inventory.length > 0) {
-              cloudInventory = serverData.inventory;
-            }
-            if ((!cloudCustomProfits || cloudCustomProfits.length === 0) && Array.isArray(serverData.customProfits) && serverData.customProfits.length > 0) {
-              cloudCustomProfits = serverData.customProfits;
-            }
-            if (cloudCapital === null && typeof serverData.capital === 'number') {
-              cloudCapital = serverData.capital;
-            }
-          }
-        }
-      }
-    } catch {}
-
-    // STEP 3: Fallback to Offline Cache & Seed Data so records NEVER vanish
-    const cachedStore = loadCachedStore();
-
-    cloudExpenses = mergeExpensesWithSeed(cloudExpenses || cachedStore.expenses);
-
-    if (!cloudOrders) {
-      cloudOrders = cachedStore.orders || [];
-    }
-
-    // Merge inventory so both fabrics AND packaging items are present
-    const baseInventory = (cloudInventory && cloudInventory.length > 0) 
-      ? cloudInventory 
-      : (cachedStore.inventory && cachedStore.inventory.length > 0 ? cachedStore.inventory : SEED_INVENTORY);
-    
-    // Ensure all packaging items from seed exist in inventory
-    const inventoryMap = new Map<string, Fabric>();
-    SEED_INVENTORY.forEach(item => inventoryMap.set(item.id, item));
-    baseInventory.forEach(item => inventoryMap.set(item.id, item));
-    const mergedInventory = Array.from(inventoryMap.values());
-
-    // STEP 4: Settings Reconciliation
-    const localCachedSettings = getLocalStoreSettings();
-    const localTime = localCachedSettings?.updatedAt || 0;
-    const cloudTime = cloudSettings?.updatedAt || 0;
-
-    let effectiveSettings: StoreSettings;
-    if (localCachedSettings && localTime >= cloudTime && localTime > 0) {
-      effectiveSettings = localCachedSettings;
-      if (localTime > cloudTime) {
-        persistStoreSettings(localCachedSettings).catch(() => {});
-      }
-    } else if (cloudSettings && cloudTime > 0) {
-      effectiveSettings = cloudSettings;
-    } else {
-      effectiveSettings = localCachedSettings || cloudSettings || DEFAULT_STORE_SETTINGS;
-    }
-
-    cloudStore = {
-      orders: cloudOrders,
-      expenses: mergeExpensesWithSeed(cloudExpenses),
-      inventory: mergedInventory,
-      capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
-      customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
-      settings: effectiveSettings
-    };
-    isInitialCloudLoadComplete = true;
-
-    // Persist to versioned offline cache
-    saveCachedStore(cloudStore);
-
-    if (typeof window !== 'undefined' && effectiveSettings) {
+      // STEP 2: Query Cloud Server Backend API with cache: no-store
       try {
-        localStorage.setItem('nasjah_store_settings', JSON.stringify(effectiveSettings));
+        const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (sRes.ok) {
+          const contentType = sRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const sData = await sRes.json();
+            if (sData?.settings && typeof sData.settings === 'object') {
+              const serverTime = sData.settings.updatedAt || 0;
+              const cloudTime = cloudSettings?.updatedAt || 0;
+              if (!cloudSettings || serverTime >= cloudTime) {
+                cloudSettings = {
+                  ...DEFAULT_STORE_SETTINGS,
+                  ...(cloudSettings || {}),
+                  ...sData.settings
+                };
+              }
+            }
+          }
+        }
       } catch {}
-      window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: effectiveSettings }));
-    }
 
-    // Self-healing: if authenticated and we have restored expenses that Supabase didn't have, sync them back to Supabase!
-    if (activeSession && cloudExpenses && cloudExpenses.length > 0) {
-      syncToSupabase(cloudStore).catch(() => {});
-    }
+      // Query backend store data ONLY if primary entities are still null (e.g. Supabase unreachable)
+      if (cloudOrders === null || cloudInventory === null || cloudExpenses === null) {
+        try {
+          const res = await fetch(`/api/store-data?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: { 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const contentType = res.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const serverData = await res.json();
+              if (serverData.success) {
+                if (cloudOrders === null && Array.isArray(serverData.orders)) {
+                  cloudOrders = serverData.orders;
+                }
+                if (cloudExpenses === null && Array.isArray(serverData.expenses)) {
+                  cloudExpenses = mergeExpensesWithSeed(serverData.expenses);
+                }
+                if (cloudInventory === null && Array.isArray(serverData.inventory)) {
+                  cloudInventory = serverData.inventory;
+                }
+                if (cloudCustomProfits === null && Array.isArray(serverData.customProfits)) {
+                  cloudCustomProfits = serverData.customProfits;
+                }
+                if (cloudCapital === null && typeof serverData.capital === 'number') {
+                  cloudCapital = serverData.capital;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
 
-    notifyDataChanged();
-    return cloudStore;
-  } catch (err) {
-    console.warn('Cloud data sync fallback:', err);
-    return cloudStore;
-  } finally {
-    isSyncing = false;
-  }
+      // STEP 3: Fallback & Packaging integrity
+      // Orders: If Supabase returned an array (even if []), THAT IS the truth. Do NOT resurrect deleted orders!
+      const finalOrders = cloudOrders !== null ? cloudOrders : (cloudStore.orders || []);
+      const finalExpenses = mergeExpensesWithSeed(cloudExpenses || cloudStore.expenses || []);
+
+      // Inventory: whatever fabrics are in cloudInventory are the truth. Ensure packaging items exist.
+      const baseInventory = cloudInventory !== null ? cloudInventory : (cloudStore.inventory || SEED_INVENTORY);
+      const inventoryMap = new Map<string, Fabric>();
+      SEED_INVENTORY.forEach(item => inventoryMap.set(item.id, item));
+      baseInventory.forEach(item => inventoryMap.set(item.id, item));
+      const mergedInventory = Array.from(inventoryMap.values());
+
+      // STEP 4: Settings Priority - database settings always win over stale local storage
+      const effectiveSettings: StoreSettings = cloudSettings || cloudStore.settings || getLocalStoreSettings() || DEFAULT_STORE_SETTINGS;
+
+      cloudStore = {
+        orders: finalOrders,
+        expenses: finalExpenses,
+        inventory: mergedInventory,
+        capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
+        customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
+        settings: effectiveSettings
+      };
+      isInitialCloudLoadComplete = true;
+
+      if (typeof window !== 'undefined' && effectiveSettings) {
+        try {
+          localStorage.setItem('nasjah_store_settings', JSON.stringify(effectiveSettings));
+        } catch {}
+        window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: effectiveSettings }));
+      }
+
+      // Self-healing: if authenticated and we have restored expenses that Supabase didn't have, sync them back to Supabase!
+      if (activeSession && cloudExpenses && cloudExpenses.length > 0) {
+        syncToSupabase(cloudStore).catch(() => {});
+      }
+
+      notifyDataChanged();
+      return cloudStore;
+    } catch (err) {
+      console.warn('Cloud data sync fallback:', err);
+      return cloudStore;
+    } finally {
+      activeSyncPromise = null;
+    }
+  })();
+
+  return activeSyncPromise;
 }
 
 /**
@@ -836,6 +819,7 @@ export async function persistOrders(orders: Order[]): Promise<void> {
   // 2. Sync to Cloud Backend
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ orders })
@@ -869,7 +853,7 @@ export async function deleteOrderPermanently(orderId: string): Promise<Order[]> 
 
   // 2. Direct delete from Cloud server
   try {
-    await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+    await fetch(`/api/orders/${encodeURIComponent(orderId)}`, { cache: 'no-store', method: 'DELETE' });
   } catch {}
 
   // 3. Update full sync to keep user metadata in sync
@@ -892,6 +876,7 @@ export async function persistExpenses(expenses: Expense[]): Promise<void> {
   // 2. Sync to Cloud Backend
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expenses })
@@ -926,7 +911,7 @@ export async function deleteExpensePermanently(expenseId: string): Promise<Expen
 
   // 2. Direct delete from Cloud server
   try {
-    await fetch(`/api/expenses/${encodeURIComponent(expenseId)}`, { method: 'DELETE' });
+    await fetch(`/api/expenses/${encodeURIComponent(expenseId)}`, { cache: 'no-store', method: 'DELETE' });
   } catch {}
 
   // 3. Update full sync to keep user metadata in sync
@@ -944,6 +929,7 @@ export async function persistCapital(amount: number): Promise<void> {
   
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ capital: amount })
@@ -967,6 +953,7 @@ export async function persistInventory(inventory: Fabric[]): Promise<void> {
   // 2. Sync to Cloud Backend
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ inventory })
@@ -1000,7 +987,7 @@ export async function deleteFabricPermanently(fabricId: string): Promise<Fabric[
 
   // 2. Direct delete from Cloud server
   try {
-    await fetch(`/api/inventory/${encodeURIComponent(fabricId)}`, { method: 'DELETE' });
+    await fetch(`/api/inventory/${encodeURIComponent(fabricId)}`, { cache: 'no-store', method: 'DELETE' });
   } catch {}
 
   // 3. Update full sync to keep user metadata in sync
@@ -1040,7 +1027,7 @@ export async function resetDatabase(): Promise<void> {
   syncToSupabase(cloudStore).catch(() => {});
 
   try {
-    await fetch('/api/reset-data', { method: 'POST' });
+    await fetch('/api/reset-data', { cache: 'no-store', method: 'POST' });
   } catch {}
 }
 
@@ -1056,6 +1043,7 @@ export async function persistCustomProfits(customProfits: CustomProfit[]): Promi
 
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customProfits })
@@ -1198,6 +1186,7 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
   // 3. Persist to Server API /api/store-settings (when running with Express backend)
   try {
     const res = await fetch('/api/store-settings', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(merged)
@@ -1224,6 +1213,7 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
   // 4. Also notify server sync endpoint
   try {
     await fetch('/api/sync', {
+      cache: 'no-store',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ settings: merged })
