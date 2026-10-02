@@ -218,7 +218,24 @@ export function mergeExpensesWithSeed(existingExpenses?: Expense[] | null): Expe
 }
 
 function loadCachedStore(): StoreData {
-  // Pure in-memory default store - zero stale cache loaded from disk
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('nasjah_store_data');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+            expenses: Array.isArray(parsed.expenses) && parsed.expenses.length > 0 ? parsed.expenses : mergeExpensesWithSeed([]),
+            inventory: Array.isArray(parsed.inventory) && parsed.inventory.length > 0 ? parsed.inventory : SEED_INVENTORY,
+            capital: typeof parsed.capital === 'number' ? parsed.capital : 0,
+            customProfits: Array.isArray(parsed.customProfits) ? parsed.customProfits : [],
+            settings: parsed.settings || DEFAULT_STORE_SETTINGS
+          };
+        }
+      }
+    } catch {}
+  }
   return {
     orders: [],
     expenses: mergeExpensesWithSeed([]),
@@ -229,26 +246,31 @@ function loadCachedStore(): StoreData {
   };
 }
 
-function saveCachedStore(_data: StoreData): void {
-  // Anti-cache directive: never persist stale business records to localStorage
+function saveCachedStore(data: StoreData): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('nasjah_store_data', JSON.stringify(data));
+    localStorage.setItem('nasjah_store_data_updated', Date.now().toString());
+  } catch (err) {
+    console.warn('LocalStorage save error:', err);
+  }
 }
 
-// In-memory runtime store - starts fresh and populates purely from live database
+// In-memory runtime store - initializes from saved localStorage immediately
 let cloudStore: StoreData = loadCachedStore();
 
 let activeSyncPromise: Promise<StoreData> | null = null;
 let realtimeChannelSubscribed = false;
 let isInitialCloudLoadComplete = false;
 
-// Purge any stale storage keys on module load and register auto-refresh on focus
+// Purge only legacy/obsolete cache keys on module load and register auto-refresh on focus
 if (typeof window !== 'undefined') {
   try {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && (
-        k.startsWith('nasjah_offline_store') || 
-        k.startsWith('nasjah_store_data') || 
+        k.startsWith('nasjah_offline_store_v') || 
         k.startsWith('nasjah_cached_')
       )) {
         keysToRemove.push(k);
@@ -788,14 +810,49 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
         } catch {}
       }
 
-      // STEP 3: Fallback & Packaging integrity
-      // Orders: If Supabase returned an array (even if []), THAT IS the truth. Do NOT resurrect deleted orders!
-      const finalOrders = cloudOrders !== null ? cloudOrders : (cloudStore.orders || []);
-      const finalExpenses = mergeExpensesWithSeed(cloudExpenses || cloudStore.expenses || []);
+      // STEP 3: Fallback & Resilient Data Integrity
+      // Orders: If Supabase returned non-empty rows, use them.
+      // If Supabase returned [] (e.g. empty or un-synced table) but local store has orders, preserve local orders!
+      let finalOrders: Order[];
+      if (cloudOrders !== null && cloudOrders.length > 0) {
+        finalOrders = cloudOrders;
+      } else if (cloudStore.orders && cloudStore.orders.length > 0) {
+        finalOrders = cloudStore.orders;
+      } else {
+        finalOrders = cloudOrders !== null ? cloudOrders : (cloudStore.orders || []);
+      }
 
-      // Inventory: whatever fabrics are in cloudInventory from database are the absolute truth.
-      // Do NOT resurrect deleted fabrics or overwrite stock with SEED_INVENTORY.
-      const mergedInventory = cloudInventory !== null ? cloudInventory : (cloudStore.inventory || SEED_INVENTORY);
+      // Expenses: If Supabase has expenses, merge with seed.
+      // If Supabase table is empty ([]), but local store has user expenses, preserve local expenses!
+      let finalExpenses: Expense[];
+      if (cloudExpenses !== null && cloudExpenses.length > 0) {
+        finalExpenses = mergeExpensesWithSeed(cloudExpenses);
+      } else if (cloudStore.expenses && cloudStore.expenses.length > 0) {
+        finalExpenses = mergeExpensesWithSeed(cloudStore.expenses);
+      } else {
+        finalExpenses = mergeExpensesWithSeed(cloudExpenses || []);
+      }
+
+      // Inventory: whatever fabrics are in cloudInventory from database are the truth.
+      // If local store has items that aren't yet in cloud, preserve them!
+      let mergedInventory: Fabric[];
+      if (cloudInventory !== null && cloudInventory.length > 0) {
+        const invMap = new Map<string, Fabric>();
+        cloudInventory.forEach(f => invMap.set(f.id, f));
+        (cloudStore.inventory || []).forEach(f => {
+          if (!invMap.has(f.id)) {
+            invMap.set(f.id, f);
+          }
+        });
+        mergedInventory = Array.from(invMap.values());
+      } else {
+        mergedInventory = cloudStore.inventory && cloudStore.inventory.length > 0 ? cloudStore.inventory : SEED_INVENTORY;
+      }
+
+      // Custom Profits:
+      const finalCustomProfits = (cloudCustomProfits !== null && cloudCustomProfits.length > 0)
+        ? cloudCustomProfits
+        : (cloudStore.customProfits && cloudStore.customProfits.length > 0 ? cloudStore.customProfits : []);
 
       // STEP 4: Settings Priority - database settings always win over stale local storage
       const effectiveSettings: StoreSettings = cloudSettings || cloudStore.settings || getLocalStoreSettings() || DEFAULT_STORE_SETTINGS;
@@ -805,10 +862,13 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
         expenses: finalExpenses,
         inventory: mergedInventory,
         capital: cloudCapital !== null ? cloudCapital : (cloudStore.capital || 0),
-        customProfits: cloudCustomProfits !== null ? cloudCustomProfits : (cloudStore.customProfits || []),
+        customProfits: finalCustomProfits,
         settings: effectiveSettings
       };
       isInitialCloudLoadComplete = true;
+
+      // Always persist latest state to localStorage immediately so no refresh ever loses user edits
+      saveCachedStore(cloudStore);
 
       if (typeof window !== 'undefined' && effectiveSettings) {
         try {
@@ -817,8 +877,8 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
         window.dispatchEvent(new CustomEvent(EVENT_STORE_SETTINGS_UPDATED, { detail: effectiveSettings }));
       }
 
-      // Self-healing: if authenticated and we have restored expenses that Supabase didn't have, sync them back to Supabase!
-      if (activeSession && cloudExpenses && cloudExpenses.length > 0) {
+      // Self-healing: if authenticated, push to Supabase so cloud tables stay synced
+      if (activeSession) {
         syncToSupabase(cloudStore).catch(() => {});
       }
 
@@ -1143,7 +1203,6 @@ export async function persistStoreSettings(settings: Partial<StoreSettings>): Pr
           name: 'إعدادات متجر نَسْجَة',
           category: '__system__',
           quantity: 1,
-          price: 0,
           image_url: JSON.stringify(merged)
         }, { onConflict: 'id' });
 

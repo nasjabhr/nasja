@@ -1,7 +1,7 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '3.1.0';
-export const APP_BUILD_DATE = '2026.10.03';
+export const APP_VERSION = '3.2.0';
+export const APP_BUILD_DATE = '2026.10.03-v2';
 
 // Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {
@@ -9,13 +9,12 @@ export function ensureLatestVersionLoaded() {
     const STORAGE_KEY = 'nasjah_internal_build_v';
     const lastVersion = localStorage.getItem(STORAGE_KEY);
     
-    // 1. Purge all outdated local storage data caches
+    // 1. Purge outdated temporary caches only (preserve active store business data)
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && (
-        k.startsWith('nasjah_offline_store') || 
-        k.startsWith('nasjah_store_data') || 
+        k.startsWith('nasjah_offline_store_v') || 
         k.startsWith('nasjah_cached_')
       )) {
         keysToRemove.push(k);

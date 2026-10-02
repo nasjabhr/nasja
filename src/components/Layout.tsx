@@ -39,12 +39,12 @@ export default function Layout() {
         const cacheNames = await caches.keys();
         await Promise.all(cacheNames.map(name => caches.delete(name))).catch(() => {});
       }
-      // 3. Purge stale storage keys
+      // 3. Purge legacy temporary keys only (preserve active store data)
       try {
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && (k.startsWith('nasjah_offline_store') || k.startsWith('nasjah_store_data') || k.startsWith('nasjah_cached_'))) {
+          if (k && (k.startsWith('nasjah_offline_store_v') || k.startsWith('nasjah_cached_'))) {
             keysToRemove.push(k);
           }
         }
