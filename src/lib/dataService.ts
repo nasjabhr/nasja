@@ -226,8 +226,8 @@ function loadCachedStore(): StoreData {
         if (parsed && typeof parsed === 'object') {
           return {
             orders: Array.isArray(parsed.orders) ? parsed.orders : [],
-            expenses: Array.isArray(parsed.expenses) && parsed.expenses.length > 0 ? parsed.expenses : mergeExpensesWithSeed([]),
-            inventory: Array.isArray(parsed.inventory) && parsed.inventory.length > 0 ? parsed.inventory : SEED_INVENTORY,
+            expenses: Array.isArray(parsed.expenses) ? parsed.expenses : SEED_EXPENSES,
+            inventory: Array.isArray(parsed.inventory) ? parsed.inventory : SEED_INVENTORY,
             capital: typeof parsed.capital === 'number' ? parsed.capital : 0,
             customProfits: Array.isArray(parsed.customProfits) ? parsed.customProfits : [],
             settings: parsed.settings || DEFAULT_STORE_SETTINGS
@@ -238,7 +238,7 @@ function loadCachedStore(): StoreData {
   }
   return {
     orders: [],
-    expenses: mergeExpensesWithSeed([]),
+    expenses: SEED_EXPENSES,
     inventory: SEED_INVENTORY,
     capital: 0,
     customProfits: [],
@@ -375,10 +375,10 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           };
         });
         
-        const { error: ordErr } = await supabase.from('orders').upsert(mappedOrders);
+        const { error: ordErr } = await supabase.from('orders').upsert(mappedOrders, { onConflict: 'id' });
         if (ordErr) {
           const minimalOrders = mappedOrders.map(({ delivery_type, delivery_zone, delivery_fee, fabric_id, fabric_meters, fabric_name, ...rest }: any) => rest);
-          await supabase.from('orders').upsert(minimalOrders);
+          await supabase.from('orders').upsert(minimalOrders, { onConflict: 'id' });
         }
 
         const inClause = `(${orderIds.map(id => `"${id}"`).join(',')})`;
@@ -390,7 +390,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
 
     // 2. Synchronize Expenses table
     try {
-      const safeExpenses = mergeExpensesWithSeed(data.expenses);
+      const safeExpenses = data.expenses || [];
       
       const expenseIds = safeExpenses.map(e => e.id);
       if (expenseIds.length > 0) {
@@ -405,7 +405,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           notes: String(e.notes || ''),
           created_at_ms: Number(e.createdAt) || Date.now()
         }));
-        await supabase.from('expenses').upsert(mappedExpenses);
+        await supabase.from('expenses').upsert(mappedExpenses, { onConflict: 'id' });
 
         const inClause = `(${expenseIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('expenses').delete().not('id', 'in', inClause);
@@ -442,7 +442,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
             barcode: packedBarcode
           };
         });
-        await supabase.from('inventory').upsert(mappedInventory);
+        await supabase.from('inventory').upsert(mappedInventory, { onConflict: 'id' });
 
         const inClause = `(${inventoryIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('inventory').delete().not('id', 'in', inClause).neq('id', '__store_settings__');
@@ -465,7 +465,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
           date: p.date || '',
           created_at_ms: p.createdAt || Date.now()
         }));
-        await supabase.from('custom_profits').upsert(mappedProfits);
+        await supabase.from('custom_profits').upsert(mappedProfits, { onConflict: 'id' });
 
         const inClause = `(${profitIds.map(id => `"${id}"`).join(',')})`;
         await supabase.from('custom_profits').delete().not('id', 'in', inClause);
@@ -477,7 +477,7 @@ export async function syncToSupabase(data: StoreData): Promise<void> {
     // 5. Safe user metadata fallback in Supabase Auth cloud
     if (session) {
       try {
-        const effectiveExpenses = mergeExpensesWithSeed(data.expenses);
+        const effectiveExpenses = data.expenses || [];
 
         await supabase.auth.updateUser({
           data: {
@@ -689,7 +689,7 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
             }
 
             if (!expRes.error && Array.isArray(expRes.data)) {
-              cloudExpenses = mergeExpensesWithSeed(expRes.data.map((e: any) => ({
+              cloudExpenses = expRes.data.map((e: any) => ({
                 id: String(e.id),
                 description: e.description || '',
                 amount: Number(e.amount || 0),
@@ -698,7 +698,7 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
                 paidTo: e.paid_to || e.paidTo || '',
                 notes: e.notes || '',
                 createdAt: Number(e.created_at_ms || (e.created_at ? new Date(e.created_at).getTime() : Date.now()))
-              })));
+              }));
             }
           } catch (tableErr) {
             console.warn('Orders/Expenses query note:', tableErr);
@@ -731,7 +731,7 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
                 cloudOrders = metaStore.orders;
               }
               if (cloudExpenses === null && Array.isArray(metaStore.expenses)) {
-                cloudExpenses = mergeExpensesWithSeed(metaStore.expenses);
+                cloudExpenses = metaStore.expenses;
               }
               if (cloudInventory === null && Array.isArray(metaStore.inventory)) {
                 cloudInventory = metaStore.inventory;
@@ -793,7 +793,7 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
                   cloudOrders = serverData.orders;
                 }
                 if (cloudExpenses === null && Array.isArray(serverData.expenses)) {
-                  cloudExpenses = mergeExpensesWithSeed(serverData.expenses);
+                  cloudExpenses = serverData.expenses;
                 }
                 if (cloudInventory === null && Array.isArray(serverData.inventory)) {
                   cloudInventory = serverData.inventory;
@@ -822,31 +822,30 @@ export function syncWithServer(forceFresh = false): Promise<StoreData> {
         finalOrders = cloudOrders !== null ? cloudOrders : (cloudStore.orders || []);
       }
 
-      // Expenses: If Supabase has expenses, merge with seed.
-      // If Supabase table is empty ([]), but local store has user expenses, preserve local expenses!
+      // Expenses:
+      // 1. If Supabase returned non-empty expenses, use them.
+      // 2. If Supabase table is empty or offline, preserve local user edits.
+      // 3. Fallback to SEED_EXPENSES only if completely uninitialized.
       let finalExpenses: Expense[];
       if (cloudExpenses !== null && cloudExpenses.length > 0) {
-        finalExpenses = mergeExpensesWithSeed(cloudExpenses);
+        finalExpenses = cloudExpenses;
       } else if (cloudStore.expenses && cloudStore.expenses.length > 0) {
-        finalExpenses = mergeExpensesWithSeed(cloudStore.expenses);
+        finalExpenses = cloudStore.expenses;
+      } else if (cloudExpenses !== null) {
+        finalExpenses = cloudExpenses;
       } else {
-        finalExpenses = mergeExpensesWithSeed(cloudExpenses || []);
+        finalExpenses = SEED_EXPENSES;
       }
 
       // Inventory: whatever fabrics are in cloudInventory from database are the truth.
-      // If local store has items that aren't yet in cloud, preserve them!
+      // If local store has items and cloud is empty, preserve local store!
       let mergedInventory: Fabric[];
       if (cloudInventory !== null && cloudInventory.length > 0) {
-        const invMap = new Map<string, Fabric>();
-        cloudInventory.forEach(f => invMap.set(f.id, f));
-        (cloudStore.inventory || []).forEach(f => {
-          if (!invMap.has(f.id)) {
-            invMap.set(f.id, f);
-          }
-        });
-        mergedInventory = Array.from(invMap.values());
+        mergedInventory = cloudInventory;
+      } else if (cloudStore.inventory && cloudStore.inventory.length > 0) {
+        mergedInventory = cloudStore.inventory;
       } else {
-        mergedInventory = cloudStore.inventory && cloudStore.inventory.length > 0 ? cloudStore.inventory : SEED_INVENTORY;
+        mergedInventory = SEED_INVENTORY;
       }
 
       // Custom Profits:
