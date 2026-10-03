@@ -190,51 +190,43 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Net Profit & Operating Flow Display */}
+        {/* Net Cash Balance Display matching stc pay Bank Statement */}
         <div className={`p-3.5 rounded-2xl flex items-center justify-between px-4 sm:px-6 border transition-all shadow-xs ${
-          netOperatingFlow >= 0 
+          availableLiquidity >= 0 
             ? 'bg-gradient-to-l from-[#1D3A30] via-[#224438] to-[#1D3A30] text-[#FAF7F0] border-[#C7B895]/40' 
             : 'bg-gradient-to-l from-rose-950 via-rose-900 to-rose-950 text-white border-rose-900'
         }`}>
           <div className="text-right">
             <span className="text-xs sm:text-sm font-black text-[#E8D5A8] tracking-wide block">
-              صافي حركة الحساب التشغيلية
+              الرصيد الفعلي المتوفر في البنك
             </span>
             <span className="text-[10px] sm:text-[11px] text-[#C7B895] font-semibold flex items-center gap-1.5 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#E8D5A8] inline-block" />
-              {reimbursedInflows > 0 
-                ? `مبيعات (${ordersSalesOnly.toFixed(2)}) + مستردات (${reimbursedInflows.toFixed(2)}) - مصروفات`
-                : (netOperatingFlow >= 0 ? 'أرباح تشغيلية مستقرة' : 'عجز تشغيلي')}
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+              مطابق لحساب stc pay (المبالغ الداخلة - المبالغ الخارجة)
             </span>
           </div>
           <div className="text-left font-mono">
             <span className="text-xl sm:text-2xl lg:text-3xl font-black text-white leading-none tracking-tight">
-              {netOperatingFlow.toFixed(2)}
+              {availableLiquidity.toFixed(3)}
             </span>
             <span className="text-xs sm:text-sm font-bold text-[#E8D5A8] mr-1.5">د.ب</span>
           </div>
         </div>
 
-        {/* Sales and Expenses Row */}
+        {/* Inflows and Outflows Row */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-2.5">
           <div className="p-2.5 sm:p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 flex items-center justify-between px-3.5 shadow-2xs hover:border-[#C7B895]/60 transition">
             <div>
               <span className="text-[11px] sm:text-xs font-bold text-[#1D3A30] block">
-                إجمالي الإيرادات
+                إجمالي المبالغ الداخلة
               </span>
               <span className="text-[9px] sm:text-[10px] text-[#1D3A30]/65 block font-medium mt-0.5">
-                {orders.filter((o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي').length} طلب محصل
-                {reimbursedInflows > 0 && (
-                  <span className="text-emerald-800 font-bold mr-1">• {reimbursedInflows.toFixed(2)} مستردات</span>
-                )}
-                {pendingPaymentSales > 0 && (
-                  <span className="text-amber-800 font-bold mr-1">• {pendingPaymentSales.toFixed(2)} معلّق/آجل</span>
-                )}
+                إيرادات ومبيعات وإيداعات
               </span>
             </div>
             <div className="text-left font-mono">
-              <span className="text-sm sm:text-base lg:text-lg font-black text-[#1D3A30]">
-                +{sales.toFixed(2)}
+              <span className="text-sm sm:text-base lg:text-lg font-black text-emerald-700">
+                +{sales.toFixed(3)}
               </span>
               <span className="text-[10px] sm:text-xs font-bold text-[#A99872] mr-1">د.ب</span>
             </div>
@@ -243,7 +235,7 @@ export default function Dashboard() {
           <div className="p-2.5 sm:p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 flex items-center justify-between px-3.5 shadow-2xs hover:border-rose-300 transition">
             <div>
               <span className="text-[11px] sm:text-xs font-bold text-rose-800 block">
-                إجمالي المصروفات
+                إجمالي المبالغ الخارجة
               </span>
               <Link to="/expenses" className="text-[9px] sm:text-[10px] text-rose-700 hover:text-rose-900 flex items-center gap-0.5 font-semibold mt-0.5">
                 سجل المصروفات ←
@@ -251,7 +243,7 @@ export default function Dashboard() {
             </div>
             <div className="text-left font-mono">
               <span className="text-sm sm:text-base lg:text-lg font-black text-rose-700">
-                -{expenses.toFixed(2)}
+                -{expenses.toFixed(3)}
               </span>
               <span className="text-[10px] sm:text-xs font-bold text-rose-500 mr-1">د.ب</span>
             </div>

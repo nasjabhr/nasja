@@ -108,17 +108,33 @@ const DEFAULT_STORE_SETTINGS: StoreSettings = {
   updatedAt: 0,
 };
 
-// The 8 canonical founder expenses. Inserted ONCE into the database (only if the table is empty),
-// after which the database is the single source of truth (edits/deletions persist).
+// 12 Exact Debits from stc pay Statement (Total 400.350 BHD)
 const SEED_EXPENSES: Expense[] = [
-  { id: 'UVW3Q3', description: 'رسوم الرحلة (احمد عبد الأمير)', amount: 3.8, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789735140000 },
-  { id: '60VWIG', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.2, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668660000 },
-  { id: 'O8U3P5', description: 'رسوم الرحلة الأولى (ابو حسين)', amount: 22.78, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668540000 },
-  { id: 'D4R0DZ', description: 'بترول الاكورد', amount: 15, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة ابو حسين قبل السفر اول مرة', createdAt: 1789497300000 },
-  { id: '62GDX8', description: 'طلبية تيمو', amount: 11.64, category: 'تغليف ومطبوعات', paymentMethod: 'بطاقة ائتمانية', paidTo: 'تيمو', notes: 'اول دفعة لنا', createdAt: 1789480740000 },
-  { id: 'EXP_LIGHT_01', description: 'اضاءة هدايا الزبائن', amount: 6.5, category: 'تسويق وإعلانات', paymentMethod: 'بنفت بي', paidTo: 'تسويق الإعلانات', notes: '', createdAt: 1789750000000 },
-  { id: 'EXP_LOAN_01', description: 'سلف احمد عبد الامير', amount: 10, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'احمد', notes: '', createdAt: 1789720000000 },
-  { id: 'EXP_TOOL_01', description: 'مقص ومسطرة متر', amount: 6.5, category: 'صيانة وأدوات', paymentMethod: 'بنفت بي', paidTo: 'محل في الديه', notes: '', createdAt: 1789710000000 },
+  { id: 'EXP_FABRICS_ALAWADH', description: 'شراء أقمشة (عبد العزيز العوض - 215 د.ك)', amount: 272.331, category: 'أقمشة ومستلزمات المخزون', paymentMethod: 'بطاقة ائتمانية', paidTo: 'عبد العزيز أسعد العوض', notes: 'KWD 215.000 Online Card', createdAt: 1790974623000 },
+  { id: 'EXP_ROUNDUP', description: 'تقريب المعاملة البنكية (Roundup)', amount: 0.069, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1790974629000 },
+  { id: 'EXP_SENT_1001_9', description: 'تحويل فوري بلس (حساب 1001)', amount: 9.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 1001', notes: '', createdAt: 1790793959000 },
+  { id: 'EXP_SENT_0692_65', description: 'تحويل فوري بلس (حساب 0692)', amount: 6.500, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 0692', notes: '', createdAt: 1790693113000 },
+  { id: 'EXP_SENT_2217_23', description: 'تحويل فوري بلس (حساب 2217)', amount: 2.300, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 2217', notes: '', createdAt: 1790684439000 },
+  { id: 'EXP_SENT_1001_115', description: 'تحويل فوري بلس (حساب 1001)', amount: 1.150, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 1001', notes: '', createdAt: 1790672363000 },
+  { id: 'EXP_SENT_0692_1612', description: 'تحويل فوري بلس (حساب 0692)', amount: 16.120, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 0692', notes: '', createdAt: 1789826757000 },
+  { id: 'EXP_TRIP_AHMED', description: 'رسوم الرحلة (أحمد عبد الأمير)', amount: 3.800, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671636000 },
+  { id: 'EXP_TRIP_ABUHUSSAIN', description: 'رسوم الرحلة الأولى (أبو حسين)', amount: 22.780, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671480000 },
+  { id: 'EXP_TRIP_ALI', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.200, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671057000 },
+  { id: 'EXP_PETROL_ACCORD', description: 'بترول الأكورد', amount: 15.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة أبو حسين قبل السفر', createdAt: 1789500495000 },
+  { id: 'EXP_CARD_REG', description: 'رسوم تسجيل البطاقة الرقمية (Bpay-Regstrn)', amount: 0.100, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1789459928000 },
+];
+
+// 9 Exact Credits / Inflows from stc pay Statement (Total 412.760 BHD)
+const SEED_PROFITS: CustomProfit[] = [
+  { id: 'INF_DEP_4300_2', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974075000 },
+  { id: 'INF_DEP_4300_1', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974056000 },
+  { id: 'INF_RECV_0000', description: 'تحويل فوري بلس لحساب المشروع (حساب 0000)', amount: 0.850, category: 'إيراد / تحويل لحساب المشروع', date: '2026-09-29', createdAt: 1790717170000 },
+  { id: 'INF_RECV_1001', description: 'استرجاع فوري بلس (حساب 1001)', amount: 1.150, category: 'تعويض مصروف المشروع', date: '2026-09-29', createdAt: 1790701437000 },
+  { id: 'INF_RECV_2217', description: 'استرجاع فوري بلس (حساب 2217)', amount: 2.300, category: 'تعويض مصروف المشروع', date: '2026-09-29', createdAt: 1790700835000 },
+  { id: 'INF_RECV_0692', description: 'تحويل فوري بلس لحساب المشروع (حساب 0692)', amount: 7.380, category: 'إيراد / تحويل لحساب المشروع', date: '2026-09-28', createdAt: 1790623616000 },
+  { id: 'INF_DEP_1001', description: 'إيداع تأسيسي فوري بلس (حساب 1001)', amount: 110.000, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484658000 },
+  { id: 'INF_DEP_0692', description: 'إيداع تأسيسي فوري بلس (حساب 0692)', amount: 90.980, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484642000 },
+  { id: 'INF_CASHBACK_1', description: 'كاش باك محول للحساب (Transfer from Cashback+)', amount: 0.100, category: 'كاش باك', date: '2026-09-15', createdAt: 1789459928000 },
 ];
 
 // ============================================================================
@@ -591,7 +607,7 @@ async function readRaw(db: SupabaseClient): Promise<RawState> {
   };
 }
 
-/** Reads full state; guarantees canonical 8 seed expenses (126.920 BHD) are present if expenses table has no expenses. */
+/** Reads full state; seeds canonical bank statement expenses (400.350 BHD) and inflows (412.760 BHD) if empty. */
 async function loadAll(db: SupabaseClient, userId: string): Promise<StoreData> {
   const raw = await readRaw(db);
   if (raw.data.expenses.length === 0) {
@@ -600,7 +616,15 @@ async function loadAll(db: SupabaseClient, userId: string): Promise<StoreData> {
       await db.from('expenses').upsert(SEED_EXPENSES.map((x) => expenseToRow(x, userId)), { onConflict: 'id' });
       await writeSettingsRow(db, userId, raw.data.settings, { ...raw.system, seededExpensesV1: true });
     } catch (err: any) {
-      console.warn('[nasjah-api] seed upsert to DB skipped:', err?.message || err);
+      console.warn('[nasjah-api] seed expenses upsert to DB skipped:', err?.message || err);
+    }
+  }
+  if (raw.data.customProfits.length === 0) {
+    raw.data.customProfits = [...SEED_PROFITS].sort((a, b) => b.createdAt - a.createdAt);
+    try {
+      await db.from('custom_profits').upsert(SEED_PROFITS.map((x) => profitToRow(x, userId)), { onConflict: 'id' });
+    } catch (err: any) {
+      console.warn('[nasjah-api] seed profits upsert to DB skipped:', err?.message || err);
     }
   }
   return raw.data;

@@ -120,13 +120,13 @@ export default function Budget() {
         }`}
       >
         <span className="text-xs font-bold text-[#E8D5A8] tracking-wide block">
-          صافي حركة الحساب التشغيلية
+          الرصيد الفعلي المتوفر في البنك
         </span>
 
         {/* Big Number */}
         <div className="flex items-baseline justify-center gap-1.5 my-2.5 font-mono">
           <span className="text-4xl sm:text-5xl font-black tracking-tight text-white">
-            {netFlow >= 0 ? `+${netFlow.toFixed(2)}` : netFlow.toFixed(2)}
+            {netFlow >= 0 ? `+${netFlow.toFixed(3)}` : netFlow.toFixed(3)}
           </span>
           <span className="text-sm font-bold text-[#E8D5A8]">د.ب</span>
         </div>
@@ -135,24 +135,24 @@ export default function Budget() {
         <div className="grid grid-cols-2 gap-2.5 mt-4 pt-3.5 border-t border-white/10 text-xs">
           <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
             <span className="text-[11px] text-[#C7B895] font-bold block mb-1">
-              إجمالي الإيرادات والمستردات
+              إجمالي المبالغ الداخلة (الإيرادات والإيداعات)
             </span>
             <span className="text-base sm:text-lg font-black font-mono text-emerald-300 block">
-              +{totalRevenues.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+              +{totalRevenues.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
             </span>
             {manualInflows > 0 && (
               <span className="text-[10px] text-white/70 block mt-0.5">
-                مبيعات: {ordersSales.toFixed(2)} | مستردات: +{manualInflows.toFixed(2)}
+                مبيعات: {ordersSales.toFixed(3)} | إيداعات ومستردات: +{manualInflows.toFixed(3)}
               </span>
             )}
           </div>
 
           <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
             <span className="text-[11px] text-rose-300 font-bold block mb-1">
-              إجمالي المصروفات
+              إجمالي المبالغ الخارجة (المصروفات)
             </span>
             <span className="text-base sm:text-lg font-black font-mono text-rose-300 block">
-              -{totalExpenses.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+              -{totalExpenses.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
             </span>
           </div>
         </div>

@@ -6,7 +6,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Expense, PaymentMethod } from '../types';
 import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '../lib/dateUtils';
-import { persistExpenses, deleteExpensePermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED } from '../lib/dataService';
+import { persistExpenses, deleteExpensePermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED, SEED_EXPENSES } from '../lib/dataService';
 
 const EXPENSE_CATEGORIES = [
   'أقمشة ومستلزمات المخزون',
@@ -17,13 +17,7 @@ const EXPENSE_CATEGORIES = [
   'عام ومصاريف أخرى'
 ];
 
-const CANONICAL_FOUNDER_EXPENSES: Expense[] = [
-  { id: 'UVW3Q3', description: 'رسوم الرحلة (احمد عبد الأمير)', amount: 3.8, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789735140000 },
-  { id: '60VWIG', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.2, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668660000 },
-  { id: 'O8U3P5', description: 'رسوم الرحلة الأولى (ابو حسين)', amount: 22.78, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668540000 },
-  { id: 'D4R0DZ', description: 'بترول الاكورد', amount: 15, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة ابو حسين قبل السفر اول مرة', createdAt: 1789497300000 },
-  { id: '62GDX8', description: 'طلبية تيمو', amount: 11.64, category: 'تغليف ومطبوعات', paymentMethod: 'بطاقة ائتمانية', paidTo: 'تيمو', notes: 'اول دفعة لنا', createdAt: 1789480740000 },
-];
+const CANONICAL_FOUNDER_EXPENSES: Expense[] = SEED_EXPENSES;
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
