@@ -130,8 +130,7 @@
             const k = localStorage.key(i);
             if (k && (
               k.startsWith('nasjah_offline_store_v') ||
-              k.startsWith('nasjah_cached_') ||
-              k.startsWith('nasjah_internal_build')
+              k.startsWith('nasjah_cached_')
             )) {
               keysToRemove.push(k);
             }

@@ -17,6 +17,7 @@ export default function Inventory() {
     quantity: number | string;
     price: number | string;
     imageUrl: string;
+    season?: string;
     description?: string;
     sourcingType?: SourcingType;
     supplierName?: string;
@@ -27,6 +28,7 @@ export default function Inventory() {
     quantity: 22.5,
     price: '',
     imageUrl: '',
+    season: 'ربيعي',
     description: '',
     sourcingType: 'catalog',
     supplierName: '',
@@ -123,6 +125,7 @@ export default function Inventory() {
       quantity: activeTab === 'أقمشة' ? 22.5 : 10,
       price: '',
       imageUrl: '',
+      season: 'ربيعي',
       description: '',
       sourcingType: 'catalog',
       supplierName: '',
@@ -142,6 +145,7 @@ export default function Inventory() {
       quantity: item.quantity,
       price: item.price || '',
       imageUrl: item.imageUrl || item.image || '',
+      season: item.season || 'كافة الفصول',
       description: item.description || '',
       sourcingType: itemSourcing,
       supplierName: item.supplierName || '',
@@ -181,6 +185,7 @@ export default function Inventory() {
           price: cleanPrice,
           imageUrl: newFabric.imageUrl || undefined,
           category: activeTab,
+          season: isFabric ? (newFabric.season || undefined) : undefined,
           description: newFabric.description?.trim() || undefined,
           sourcingType: newFabric.sourcingType || 'catalog',
           supplierName: isCatalog ? (newFabric.supplierName?.trim() || undefined) : undefined,
@@ -199,6 +204,7 @@ export default function Inventory() {
         quantity: 22.5,
         price: '',
         imageUrl: '',
+        season: 'ربيعي',
         description: '',
         sourcingType: 'catalog',
         supplierName: '',
@@ -213,6 +219,7 @@ export default function Inventory() {
       quantity: cleanQty,
       price: cleanPrice,
       imageUrl: newFabric.imageUrl || undefined,
+      season: isFabric ? (newFabric.season || undefined) : undefined,
       description: newFabric.description?.trim() || undefined,
       sourcingType: isFabric ? (newFabric.sourcingType || 'catalog') : undefined,
       supplierName: isCatalog ? (newFabric.supplierName?.trim() || undefined) : undefined,
@@ -239,6 +246,7 @@ export default function Inventory() {
         price: fabricPayload.price!,
         imageUrl: fabricPayload.imageUrl,
         category: activeTab,
+        season: fabricPayload.season,
         description: fabricPayload.description,
         sourcingType: fabricPayload.sourcingType,
         supplierName: fabricPayload.supplierName,
@@ -258,6 +266,7 @@ export default function Inventory() {
       quantity: 22.5,
       price: '',
       imageUrl: '',
+      season: 'ربيعي',
       description: '',
       sourcingType: 'catalog',
       supplierName: '',
@@ -479,6 +488,11 @@ export default function Inventory() {
                       <h3 className="font-bold text-xs sm:text-sm text-[#1D3A30] truncate">
                         {item.name}
                       </h3>
+                      {item.season && (
+                        <span className="text-[9px] font-bold text-[#1D3A30] bg-[#FAF7F0] border border-[#C7B895]/50 px-1.5 py-0.5 rounded-md">
+                          {item.season.includes('ربيع') ? '🌿 ربيعي' : item.season.includes('شتو') ? '❄️ شتوي' : item.season.includes('صيف') ? '☀️ صيفي' : item.season}
+                        </span>
+                      )}
                       {isCatalogItem ? (
                         <span className="text-[9px] font-bold text-[#1D3A30] bg-[#FAF7F0] border border-[#C7B895]/50 px-1.5 py-0.5 rounded-md flex items-center gap-1">
                           <BookOpen className="w-2.5 h-2.5 text-[#C7B895]" />
@@ -499,10 +513,10 @@ export default function Inventory() {
                           {item.catalogCode && <> • كود: <span className="font-mono font-bold text-[#1D3A30]">{item.catalogCode}</span></>}
                         </p>
                         <p className="text-[10px] font-mono font-bold text-[#1D3A30]">
-                          البيع: <span className="text-[#A99872]">{item.price.toFixed(2)} د.ب</span>
+                          البيع: <span className="text-[#A99872]">{item.price.toFixed(3)} د.ب</span>
                           {item.costPrice !== undefined && item.costPrice > 0 && (
-                            <> • التكلفة: <span className="text-[#1D3A30]/60">{item.costPrice.toFixed(2)} د.ب</span>
-                            {' '}• <span className="text-emerald-700">ربح: +{(item.price - item.costPrice).toFixed(2)} د.ب</span>
+                            <> • التكلفة: <span className="text-[#1D3A30]/60">{item.costPrice.toFixed(3)} د.ب</span>
+                            {' '}• <span className="text-emerald-700">ربح: +{(item.price - item.costPrice).toFixed(3)} د.ب</span>
                             </>
                           )}
                         </p>
@@ -510,7 +524,7 @@ export default function Inventory() {
                     ) : (
                       item.category !== 'تغليف' && (
                         <p className="text-[11px] font-bold text-[#A99872] font-mono mt-0.5">
-                          {item.price.toFixed(2)} د.ب <span className="text-[9px] font-normal text-[#1D3A30]/60">/ {unitLabel}</span>
+                          {item.price.toFixed(3)} د.ب <span className="text-[9px] font-normal text-[#1D3A30]/60">/ {unitLabel}</span>
                         </p>
                       )
                     )}
@@ -769,6 +783,38 @@ export default function Inventory() {
                   />
                 </div>
 
+                {activeTab === 'أقمشة' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[11px] font-bold text-[#1D3A30]">
+                        تصنيف الموسم / الفصل *
+                      </label>
+                      <span className="text-[10px] text-[#A99872] font-semibold">يحدد ظهوره في أقسام المتجر</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { id: 'ربيعي', label: 'ربيعي 🌿' },
+                        { id: 'شتوي', label: 'شتوي ❄️' },
+                        { id: 'صيفي', label: 'صيفي ☀️' },
+                        { id: 'كافة الفصول', label: 'كافة الفصول ✨' },
+                      ].map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setNewFabric({ ...newFabric, season: s.id })}
+                          className={`py-2 px-1 rounded-xl text-xs font-bold border transition text-center cursor-pointer ${
+                            (newFabric.season || 'كافة الفصول') === s.id
+                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Sourcing Details (When Catalog Sourcing) */}
                 {activeTab === 'أقمشة' && newFabric.sourcingType === 'catalog' ? (
                   <div className="space-y-2.5 p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40">
@@ -845,7 +891,7 @@ export default function Inventory() {
                       <div className="p-2 rounded-xl bg-white border border-emerald-200 flex items-center justify-between text-xs font-bold">
                         <span className="text-emerald-800">صافي ربحك في المتر:</span>
                         <span className="font-mono text-emerald-700">
-                          +{(Number(newFabric.price) - Number(newFabric.costPrice)).toFixed(2)} د.ب
+                          +{(Number(newFabric.price) - Number(newFabric.costPrice)).toFixed(3)} د.ب
                         </span>
                       </div>
                     )}

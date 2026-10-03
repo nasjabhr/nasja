@@ -36,16 +36,16 @@ const SUPABASE_ANON_KEY =
 const SERVICE_ROLE_KEY = (ENV.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const HAS_SERVICE_ROLE = SERVICE_ROLE_KEY.length > 30 && SERVICE_ROLE_KEY !== SUPABASE_ANON_KEY;
 
-const ADMIN_EMAILS = (ENV.ADMIN_EMAILS || 'nasjabhr@gmail.com')
+const ADMIN_EMAILS = (ENV.ADMIN_EMAILS || 'nasjahbh@gmail.com,nasjabhr@gmail.com')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
-const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc')
+const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc,0843d2d4-0702-4ecf-800b-956155367d0a')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
-const API_VERSION = '4.7.3';
+const API_VERSION = '4.7.4';
 const SETTINGS_ROW_ID = '__store_settings__';
 const SYSTEM_CATEGORY = '__system__';
 const CRITICAL_FABRIC_THRESHOLD = 3.0;

@@ -185,7 +185,7 @@ export default function Expenses() {
         <div>
           <h1 className="text-base font-extrabold text-[#1D3A30]">المصروفات</h1>
           <p className="text-[11px] text-[#1D3A30]/70 font-medium">
-            {expenses.length} مصروف • <span className="font-bold text-rose-700 font-mono">{totalAmount.toFixed(2)} د.ب</span>
+            {expenses.length} مصروف • <span className="font-bold text-rose-700 font-mono">{totalAmount.toFixed(3)} د.ب</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -300,7 +300,7 @@ export default function Expenses() {
                   </span>
                   
                   <span className="text-sm font-black text-rose-700 font-mono">
-                    -{Number(exp.amount).toFixed(2)}{' '}
+                    -{Number(exp.amount).toFixed(3)}{' '}
                     <span className="text-[10px] font-bold">د.ب</span>
                   </span>
                 </div>

@@ -1,7 +1,7 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '4.7.3';
-export const APP_BUILD_DATE = '2026.10.03-clean-ledger-v3';
+export const APP_VERSION = '4.7.4';
+export const APP_BUILD_DATE = '2026.10.04-store-season-categories-v1';
 
 // Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {

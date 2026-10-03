@@ -167,7 +167,7 @@ export default function Budget() {
         <div className="bg-white rounded-2xl p-3 border border-[#C7B895]/30 space-y-2 shadow-2xs">
           <div className="flex items-center justify-between text-xs font-bold text-[#1D3A30] pb-1 border-b border-[#C7B895]/20">
             <span>سجل الإيرادات والمبالغ المستردة ({customProfitsList.length})</span>
-            <span className="font-mono text-emerald-800">+{manualInflows.toFixed(2)} د.ب</span>
+            <span className="font-mono text-emerald-800">+{manualInflows.toFixed(3)} د.ب</span>
           </div>
 
           <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
@@ -187,7 +187,7 @@ export default function Budget() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold font-mono text-emerald-800">
-                    +{Number(profit.amount).toFixed(2)} د.ب
+                    +{Number(profit.amount).toFixed(3)} د.ب
                   </span>
                   <button
                     type="button"

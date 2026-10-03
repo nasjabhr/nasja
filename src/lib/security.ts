@@ -105,7 +105,7 @@ export function resetFailedAttempts(): void {
 }
 
 export const AUTHORIZED_UIDS: string[] = [
-  '53cc7a5b-bc93-40ff-908e-d582d85e0efc',
+  '53cc7a5b-bc93-40ff-908e-d582d85e0efc'
 ];
 export const AUTHORIZED_UID = '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
 

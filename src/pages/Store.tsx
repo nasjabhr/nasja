@@ -12,12 +12,15 @@ import {
   MapPin, 
   ArrowUp, 
   CheckCircle2, 
-  RotateCw 
+  RotateCw,
+  Sun,
+  Snowflake,
+  Leaf
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import SplashScreen from '../components/SplashScreen';
 import WhatsAppIcon from '../components/WhatsAppIcon';
-import { StoreSettings } from '../types';
+import { StoreSettings, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
 import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
 export interface PublicFabric {
@@ -55,6 +58,7 @@ export interface StoreProduct {
   imageUrl?: string;
   description?: string;
   category?: string;
+  season?: string;
   options: StoreFabricOption[];
   isAllOutOfStock: boolean;
 }
@@ -67,6 +71,7 @@ export function formatMeters(meters: number): string {
 export default function Store() {
   const [catalog, setCatalog] = useState<PublicFabric[]>([]);
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => getLocalStoreSettings());
+  const [selectedSeason, setSelectedSeason] = useState<string>(() => getLocalStoreSettings().defaultSeason || 'all');
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -80,9 +85,10 @@ export default function Store() {
   // Horizontal meters slider: minimum 1.0 meter, default 3.5 meters
   const [customMeters, setCustomMeters] = useState<number>(3.5);
 
-  // Receiving mechanism: 'قدوم شخصي' (استلام من المحل) or 'توصيل'
+  // Receiving mechanism: 'قدوم شخصي' (استلام من المقر مجاناً) or 'توصيل' (بحسب مصفوفة البحرين)
   const [deliveryType, setDeliveryType] = useState<'قدوم شخصي' | 'توصيل'>('قدوم شخصي');
-  const [customerArea, setCustomerArea] = useState<string>('');
+  const [customerGovernorate, setCustomerGovernorate] = useState<BahrainGovernorateName>('المحافظة الشمالية');
+  const [customerArea, setCustomerArea] = useState<string>(BAHRAIN_GOVERNORATES['المحافظة الشمالية'].areas[0] || 'سار');
   const [customerHouse, setCustomerHouse] = useState<string>('');
   const [customerBlock, setCustomerBlock] = useState<string>('');
   const [customerRoad, setCustomerRoad] = useState<string>('');
@@ -198,21 +204,73 @@ export default function Store() {
     fetchCatalogAndSettings();
   }, []);
 
-  // Group fabrics into Sets and Single items (Seasons completely removed)
+  // Season tabs configuration and counts
+  const seasonTabs = useMemo(() => {
+    const order = (storeSettings.seasonsOrder && storeSettings.seasonsOrder.length > 0)
+      ? storeSettings.seasonsOrder
+      : (['spring', 'winter', 'summer'] as ('spring' | 'winter' | 'summer')[]);
+
+    const seasonConfig: Record<string, { label: string; icon: any; emoji: string }> = {
+      spring: { label: 'أقمشة ربيعية', icon: Leaf, emoji: '🌿' },
+      winter: { label: 'أقمشة شتوية', icon: Snowflake, emoji: '❄️' },
+      summer: { label: 'أقمشة صيفية', icon: Sun, emoji: '☀️' },
+    };
+
+    const countFor = (key: string) => {
+      if (key === 'all') return catalog.length;
+      return catalog.filter((f) => {
+        const s = (f.season || '').toLowerCase().trim();
+        const isAll = s === 'كافة الفصول' || s === 'all' || s === 'كافة';
+        if (key === 'winter') return isAll || s.includes('شتو') || s === 'winter';
+        if (key === 'summer') return isAll || s.includes('صيف') || s === 'summer';
+        if (key === 'spring') return isAll || s.includes('ربيع') || s === 'spring';
+        return false;
+      }).length;
+    };
+
+    return [
+      { id: 'all', label: 'جميع الأقمشة', icon: Layers, emoji: '✨', count: countFor('all') },
+      ...order.map((key) => ({
+        id: key,
+        label: seasonConfig[key]?.label || key,
+        icon: seasonConfig[key]?.icon || Sparkles,
+        emoji: seasonConfig[key]?.emoji || '',
+        count: countFor(key),
+      })),
+    ];
+  }, [storeSettings.seasonsOrder, catalog]);
+
+  // Group fabrics into Sets and Single items with Season categorization
   const displayProducts: StoreProduct[] = useMemo(() => {
     const groupsMap = new Map<string, StoreProduct>();
     const singleProducts: StoreProduct[] = [];
 
-    // Filter by search query if present
+    // Filter by season and search query if present
     const filteredCatalog = catalog.filter((fabric) => {
       if (storeSettings.hideOutOfStock && fabric.isOutOfStock) {
         return false;
       }
+
+      // Season filter
+      if (selectedSeason !== 'all') {
+        const s = (fabric.season || '').toLowerCase().trim();
+        const isAll = s === 'كافة الفصول' || s === 'all' || s === 'كافة';
+        const matches =
+          (selectedSeason === 'winter' && (s.includes('شتو') || s === 'winter')) ||
+          (selectedSeason === 'summer' && (s.includes('صيف') || s === 'summer')) ||
+          (selectedSeason === 'spring' && (s.includes('ربيع') || s === 'spring'));
+
+        if (!matches && !isAll) {
+          return false;
+        }
+      }
+
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         return (
           fabric.name.toLowerCase().includes(query) ||
           fabric.category.toLowerCase().includes(query) ||
+          (fabric.season && fabric.season.toLowerCase().includes(query)) ||
           (fabric.description && fabric.description.toLowerCase().includes(query))
         );
       }
@@ -247,6 +305,7 @@ export default function Store() {
             imageUrl: fabric.imageUrl,
             description: fabric.description,
             category: fabric.category,
+            season: fabric.season,
             options: [opt],
             isAllOutOfStock: fabric.isOutOfStock,
           });
@@ -259,6 +318,9 @@ export default function Store() {
           if (!group.imageUrl && fabric.imageUrl) {
             group.imageUrl = fabric.imageUrl;
           }
+          if (!group.season && fabric.season) {
+            group.season = fabric.season;
+          }
         }
       } else {
         singleProducts.push({
@@ -269,6 +331,7 @@ export default function Store() {
           imageUrl: fabric.imageUrl,
           description: fabric.description,
           category: fabric.category,
+          season: fabric.season,
           options: [{
             id: fabric.id,
             name: fabric.name,
@@ -292,8 +355,24 @@ export default function Store() {
       return g;
     });
 
-    return [...sets, ...singleProducts];
-  }, [catalog, searchQuery, storeSettings.hideOutOfStock]);
+    const allProducts = [...sets, ...singleProducts];
+
+    // Priority sort according to storeSettings.seasonsOrder
+    const order = storeSettings.seasonsOrder || ['spring', 'winter', 'summer'];
+    const getSeasonWeight = (s?: string) => {
+      if (!s) return 90;
+      const lower = s.toLowerCase();
+      let key = 'spring';
+      if (lower.includes('شتو') || lower === 'winter') key = 'winter';
+      else if (lower.includes('صيف') || lower === 'summer') key = 'summer';
+      else if (lower.includes('ربيع') || lower === 'spring') key = 'spring';
+      const idx = order.indexOf(key as any);
+      return idx >= 0 ? idx : 90;
+    };
+
+    allProducts.sort((a, b) => getSeasonWeight(a.season) - getSeasonWeight(b.season));
+    return allProducts;
+  }, [catalog, searchQuery, selectedSeason, storeSettings.hideOutOfStock, storeSettings.seasonsOrder]);
 
   // Open modal for a product
   const handleOpenProductModal = (product: StoreProduct) => {
@@ -310,48 +389,53 @@ export default function Store() {
     setSelectedOption(null);
   };
 
-  // Pure fabric total (delivery fee removed completely as instructed)
+  // Fabric & Delivery calculations according to the Bahrain Delivery Matrix
   const currentPrice = selectedOption?.price || activeProduct?.defaultPrice || 0;
-  const estimatedTotal = (currentPrice * customMeters).toFixed(2);
+  const fabricSubtotal = currentPrice * customMeters;
+  const deliveryFee = deliveryType === 'توصيل' ? (BAHRAIN_GOVERNORATES[customerGovernorate]?.fee ?? 0.500) : 0;
+  const estimatedGrandTotal = fabricSubtotal + deliveryFee;
 
-  // Exact WhatsApp Link format requested by user
+  // Exact WhatsApp Link format with Bahrain Delivery Matrix & 3 decimals
   const getWhatsAppLink = (product?: StoreProduct, option?: StoreFabricOption, meters?: number) => {
     const targetProduct = product || activeProduct;
     const targetOption = option || selectedOption;
 
     if (!targetProduct || !targetOption) {
-      const generalMsg = `السلام عليكم ورحمة الله وبركاته، متجر نَسْجَة للأقمشة الرجالية\nأود الاستفسار عن تشكيلة الأقمشة الرجالية المتاحة لديكم.`;
+      const generalMsg = `السلام عليكم ورحمة الله وبركاته، دار نَسْجَة للأقمشة الفاخرة\nأود الاستفسار عن تشكيلة الأقمشة المتاحة لديكم.`;
       return `https://wa.me/${whatsAppPhone}?text=${encodeURIComponent(generalMsg)}`;
     }
 
     const defaultMeters = meters !== undefined ? meters : customMeters;
     const formattedMetersStr = Number(defaultMeters).toString();
-    const unitPriceStr = Number(targetOption.price).toFixed(2);
-    const totalPriceStr = (targetOption.price * defaultMeters).toFixed(2);
+    const unitPriceStr = Number(targetOption.price).toFixed(3);
+    const fabricTotalStr = (targetOption.price * defaultMeters).toFixed(3);
+    const activeDeliveryFee = deliveryType === 'توصيل' ? (BAHRAIN_GOVERNORATES[customerGovernorate]?.fee ?? 0.500) : 0;
+    const grandTotalStr = ((targetOption.price * defaultMeters) + activeDeliveryFee).toFixed(3);
 
-    let deliveryMethodStr = 'استلام من المحل';
-    let totalLine = `• إجمالي القماش: ${totalPriceStr} د.ب`;
-    let deliveryFeeLine = '• رسوم التوصيل: لا يوجد (استلام من المحل)';
+    let deliveryMethodStr = 'استلام شخصي من المقر (مجاناً - 0.000 د.ب)';
+    let deliveryFeeLine = '• رسوم التوصيل: 0.000 د.ب (استلام شخصي من المقر)';
 
     if (deliveryType === 'توصيل') {
-      const area = customerArea.trim() || '...';
-      const house = customerHouse.trim() || '...';
-      const block = customerBlock.trim() || '...';
-      const road = customerRoad.trim() || '...';
-      deliveryMethodStr = `توصيل - ${area} (منزل: ${house} / مجمع: ${block} / طريق: ${road})`;
-      totalLine = `• إجمالي القماش: ${totalPriceStr} د.ب (غير شامل التوصيل)`;
-      deliveryFeeLine = '• رسوم التوصيل: تُحدد مع المندوب عند التأكيد';
+      const gov = customerGovernorate;
+      const area = customerArea || '...';
+      const house = customerHouse.trim() ? `منزل/مبنى: ${customerHouse.trim()}` : '';
+      const block = customerBlock.trim() ? `مجمع: ${customerBlock.trim()}` : '';
+      const road = customerRoad.trim() ? `طريق: ${customerRoad.trim()}` : '';
+      const addressDetails = [house, block, road].filter(Boolean).join(' / ');
+
+      deliveryMethodStr = `توصيل لمملكة البحرين - ${gov} (${area})${addressDetails ? `\n• تفاصيل العنوان: ${addressDetails}` : ''}`;
+      deliveryFeeLine = `• رسوم التوصيل: +${activeDeliveryFee.toFixed(3)} د.ب (${gov})`;
     }
 
-    const msg = `السلام عليكم ورحمة الله وبركاته، متجر نَسْجَة للأقمشة الرجالية
+    const msg = `السلام عليكم ورحمة الله وبركاته، دار نَسْجَة للأقمشة الفاخرة
 أود طلب القماش الآتي:
 • اسم القماش: ${targetOption.fullName}
 • سعر المتر: ${unitPriceStr} د.ب
 • عدد الأمتار: ${formattedMetersStr} متر
-• قيمة القماش: ${totalPriceStr} د.ب
+• قيمة القماش: ${fabricTotalStr} د.ب
 • طريقة الاستلام: ${deliveryMethodStr}
-${totalLine}
-${deliveryFeeLine}`;
+${deliveryFeeLine}
+• الإجمالي النهائي: ${grandTotalStr} د.ب`;
 
     return `https://wa.me/${whatsAppPhone}?text=${encodeURIComponent(msg)}`;
   };
@@ -573,6 +657,42 @@ ${deliveryFeeLine}`;
         </div>
       </div>
 
+      {/* 3.5 LUXURY SEASON / CATEGORY NAVIGATION TABS */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-1 pb-3">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 -mx-1 px-1">
+          {seasonTabs.map((tab) => {
+            const isActive = selectedSeason === tab.id;
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSelectedSeason(tab.id)}
+                className={`flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 rounded-2xl text-xs font-bold transition-all flex-shrink-0 cursor-pointer shadow-2xs ${
+                  isActive
+                    ? 'bg-[#1D3A30] text-[#E8D5A8] border-2 border-[#C7B895] shadow-sm scale-[1.02]'
+                    : 'bg-white text-[#1D3A30] border border-[#C7B895]/40 hover:border-[#1D3A30]/50 hover:bg-[#FAF7F0]'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#E8D5A8]' : 'text-[#A99872]'}`} />
+                <span>{tab.label}</span>
+                {tab.count > 0 && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
+                      isActive
+                        ? 'bg-[#E8D5A8]/20 text-[#E8D5A8] border border-[#E8D5A8]/40'
+                        : 'bg-[#FAF7F0] text-[#1D3A30]/70 border border-[#C7B895]/30'
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* 4. MAIN CONTENT: UNIFIED FABRIC AND SETS GRID */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-4 pb-20">
         {displayProducts.length === 0 ? (
@@ -581,15 +701,22 @@ ${deliveryFeeLine}`;
               <Layers className="w-6 h-6 text-[#A99872]" />
             </div>
             <h3 className="text-sm sm:text-base font-black text-[#1D3A30]">
-              {searchQuery ? `لم يتم العثور على أقمشة تطابق "${searchQuery}"` : 'لا توجد أقمشة متوفرة حالياً'}
+              {searchQuery
+                ? `لم يتم العثور على أقمشة تطابق "${searchQuery}"`
+                : selectedSeason !== 'all'
+                ? `لا توجد أقمشة مدرجة في هذا القسم حالياً`
+                : 'لا توجد أقمشة متوفرة حالياً'}
             </h3>
-            {searchQuery && (
+            {(searchQuery || selectedSeason !== 'all') && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="px-5 py-2 bg-[#1D3A30] text-[#E8D5A8] rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedSeason('all');
+                }}
+                className="px-5 py-2 bg-[#1D3A30] text-[#E8D5A8] rounded-xl text-xs font-bold transition shadow-xs cursor-pointer hover:bg-[#1D3A30]/90"
               >
-                عرض كافة الأقمشة
+                عرض كافة الأقمشة ✨
               </button>
             )}
           </div>
@@ -622,7 +749,7 @@ ${deliveryFeeLine}`;
                     {/* Subtle gradient vignette */}
                     <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/25 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
 
-                    {/* Stock Status Badge */}
+                    {/* Stock Status & Season Badges */}
                     <div className="absolute top-2 right-2 sm:top-2.5 sm:right-2.5 flex flex-col gap-1 items-start">
                       {product.isAllOutOfStock ? (
                         <span className="px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-rose-950/95 text-white backdrop-blur-xs shadow-xs border border-rose-800/40">
@@ -633,6 +760,12 @@ ${deliveryFeeLine}`;
                           مجموعة ({product.options.length})
                         </span>
                       ) : null}
+
+                      {product.season && (
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#FAF7F0]/95 text-[#1D3A30] backdrop-blur-xs shadow-xs border border-[#C7B895]/60 flex items-center gap-1">
+                          {product.season.includes('ربيع') ? '🌿 ربيعي' : product.season.includes('شتو') ? '❄️ شتوي' : product.season.includes('صيف') ? '☀️ صيفي' : product.season}
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -645,7 +778,7 @@ ${deliveryFeeLine}`;
                         </h3>
                         <div className="flex items-baseline gap-1 flex-shrink-0 bg-[#FAF7F0] px-2 py-0.5 rounded-lg border border-[#C7B895]/30 shadow-2xs">
                           <span className="text-sm sm:text-base font-black font-mono text-[#1D3A30]">
-                            {product.defaultPrice.toFixed(2)}
+                            {product.defaultPrice.toFixed(3)}
                           </span>
                           <span className="text-[9px] sm:text-[10px] font-bold text-[#A99872]">د.ب / م</span>
                         </div>
@@ -742,12 +875,19 @@ ${deliveryFeeLine}`;
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-xs sm:text-sm font-black text-[#1D3A30] truncate">
-                    {selectedOption?.fullName || activeProduct.baseName}
-                  </h3>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <h3 className="text-xs sm:text-sm font-black text-[#1D3A30] truncate">
+                      {selectedOption?.fullName || activeProduct.baseName}
+                    </h3>
+                    {activeProduct.season && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white text-[#1D3A30] border border-[#C7B895]/50 shadow-2xs">
+                        {activeProduct.season.includes('ربيع') ? '🌿 ربيعي' : activeProduct.season.includes('شتو') ? '❄️ شتوي' : activeProduct.season.includes('صيف') ? '☀️ صيفي' : activeProduct.season}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-baseline gap-1 mt-1 font-mono">
                     <span className="text-base sm:text-lg font-black text-[#1D3A30]">
-                      {(selectedOption?.price || activeProduct.defaultPrice).toFixed(2)}
+                      {(selectedOption?.price || activeProduct.defaultPrice).toFixed(3)}
                     </span>
                     <span className="text-xs font-bold text-[#A99872]">د.ب للمتر</span>
                   </div>
@@ -800,7 +940,7 @@ ${deliveryFeeLine}`;
                             </span>
                           ) : (
                             <span className={`text-[10px] font-mono ${isSelected ? 'text-[#E8D5A8]' : 'text-emerald-700 font-bold'}`}>
-                              {opt.price.toFixed(2)} د.ب
+                              {opt.price.toFixed(3)} د.ب
                             </span>
                           )}
                         </button>
@@ -891,7 +1031,7 @@ ${deliveryFeeLine}`;
                 </div>
               </div>
 
-              {/* RECEIVING MECHANISM (Zero delivery fee calculation) */}
+              {/* RECEIVING MECHANISM (Bahrain Delivery Matrix) */}
               <div className="p-3 sm:p-3.5 rounded-2xl bg-white border border-[#C7B895]/40 space-y-2.5 shadow-2xs">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-[#1D3A30] flex items-center gap-1.5">
@@ -911,7 +1051,7 @@ ${deliveryFeeLine}`;
                     }`}
                   >
                     <User className="w-3.5 h-3.5" />
-                    <span>استلام من المحل</span>
+                    <span>استلام من المقر (مجاناً)</span>
                   </button>
 
                   <button
@@ -924,35 +1064,73 @@ ${deliveryFeeLine}`;
                     }`}
                   >
                     <Truck className="w-3.5 h-3.5" />
-                    <span>خدمة التوصيل</span>
+                    <span>خدمة التوصيل بالبحرين</span>
                   </button>
                 </div>
 
-                {deliveryType === 'توصيل' && (
+                {deliveryType === 'قدوم شخصي' ? (
+                  <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[11px] text-[#1D3A30]/80 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-[#A99872] flex-shrink-0" />
+                    <span>الاستلام الشخصي مجاناً (0.000 د.ب) — سنقوم بتزويدك بالموقع عبر واتساب فور تأكيد الطلب.</span>
+                  </div>
+                ) : (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="pt-2 border-t border-[#C7B895]/30 space-y-3"
                   >
-                    {/* Area Input */}
+                    {/* Governorate Selector */}
+                    <div>
+                      <label className="text-[11px] font-bold text-[#1D3A30] flex items-center justify-between mb-1.5">
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-[#A99872]" />
+                          <span>المحافظة:</span>
+                        </span>
+                        <span className="text-[10px] text-[#A99872] font-mono font-bold">
+                          رسوم التوصيل: +{deliveryFee.toFixed(3)} د.ب
+                        </span>
+                      </label>
+                      <select
+                        value={customerGovernorate}
+                        onChange={(e) => {
+                          const newGov = e.target.value as BahrainGovernorateName;
+                          setCustomerGovernorate(newGov);
+                          const firstArea = BAHRAIN_GOVERNORATES[newGov]?.areas[0] || '';
+                          setCustomerArea(firstArea);
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold shadow-2xs"
+                      >
+                        {(Object.keys(BAHRAIN_GOVERNORATES) as BahrainGovernorateName[]).map((govKey) => (
+                          <option key={govKey} value={govKey}>
+                            {BAHRAIN_GOVERNORATES[govKey].name} — {BAHRAIN_GOVERNORATES[govKey].feeLabel}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Area Selector (Dynamic based on selected governorate) */}
                     <div>
                       <label className="text-[11px] font-bold text-[#1D3A30] flex items-center gap-1.5 mb-1.5">
                         <MapPin className="w-3.5 h-3.5 text-[#A99872]" />
                         <span>المنطقة:</span>
                       </label>
-                      <input
-                        type="text"
-                        placeholder="اكتب اسم منطقتك (مثال: أبو صيبع)"
+                      <select
                         value={customerArea}
                         onChange={(e) => setCustomerArea(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold placeholder:font-normal placeholder:text-[#1D3A30]/40 shadow-2xs"
-                      />
+                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold shadow-2xs"
+                      >
+                        {BAHRAIN_GOVERNORATES[customerGovernorate]?.areas.map((areaName) => (
+                          <option key={areaName} value={areaName}>
+                            {areaName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* 3 Distinct Address Inputs */}
                     <div>
                       <span className="text-[11px] font-bold text-[#1D3A30] block mb-1.5">
-                        تفاصيل العنوان:
+                        تفاصيل العنوان (اختياري للتوصيل السريع):
                       </span>
                       <div className="grid grid-cols-3 gap-2">
                         <div>
@@ -996,32 +1174,37 @@ ${deliveryFeeLine}`;
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[10px] text-[#1D3A30]/80 flex items-center justify-between">
-                      <span className="font-bold">رسوم التوصيل:</span>
-                      <span className="text-[#1D3A30] font-medium">تُحدد مع المندوب عند التأكيد</span>
+                    <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[11px] text-[#1D3A30] flex items-center justify-between">
+                      <span className="font-bold">رسوم التوصيل المعتمدة ({BAHRAIN_GOVERNORATES[customerGovernorate]?.shortName}):</span>
+                      <span className="font-mono font-bold text-[#1D3A30]">+{deliveryFee.toFixed(3)} د.ب</span>
                     </div>
                   </motion.div>
                 )}
               </div>
 
-              {/* Price Calculation Summary (Zero Delivery Fee added) */}
+              {/* Price Calculation Summary (Strict 3-Decimal Calculation) */}
               <div className="p-4 rounded-2xl bg-[#1D3A30] text-[#FAF7F0] space-y-2 shadow-sm border border-[#C7B895]/30">
                 <div className="flex items-center justify-between text-xs text-[#FAF7F0]/80">
                   <span>قيمة القماش ({customMeters} متر):</span>
-                  <span className="font-mono font-bold">{(currentPrice * customMeters).toFixed(2)} د.ب</span>
+                  <span className="font-mono font-bold">{fabricSubtotal.toFixed(3)} د.ب</span>
                 </div>
-                {deliveryType === 'توصيل' && (
+                {deliveryType === 'توصيل' ? (
                   <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
-                    <span>رسوم التوصيل:</span>
-                    <span>مع المندوب عند التأكيد</span>
+                    <span>رسوم التوصيل ({BAHRAIN_GOVERNORATES[customerGovernorate]?.shortName}):</span>
+                    <span className="font-mono font-bold">+{deliveryFee.toFixed(3)} د.ب</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
+                    <span>رسوم التوصيل (استلام شخصي):</span>
+                    <span className="font-mono font-bold">0.000 د.ب (مجاناً)</span>
                   </div>
                 )}
                 <div className="flex items-baseline justify-between pt-1 border-t border-[#C7B895]/20">
                   <span className="text-xs font-extrabold text-[#E8D5A8]">
-                    {deliveryType === 'توصيل' ? 'إجمالي القماش (غير شامل التوصيل):' : 'السعر الإجمالي:'}
+                    السعر الإجمالي النهائي:
                   </span>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-xl font-black text-white font-mono">{estimatedTotal}</span>
+                    <span className="text-xl font-black text-white font-mono">{estimatedGrandTotal.toFixed(3)}</span>
                     <span className="text-xs font-bold text-[#E8D5A8]">د.ب</span>
                   </div>
                 </div>

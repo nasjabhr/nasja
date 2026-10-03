@@ -375,7 +375,7 @@ export default function Dashboard() {
 
                       <div className="text-left flex-shrink-0 flex items-center gap-1.5">
                         <span className="font-bold text-xs text-[#1D3A30] font-mono">
-                          {Number(o.price || o.total).toFixed(2)} د.ب
+                          {Number(o.price || o.total).toFixed(3)} د.ب
                         </span>
 
                         <button
