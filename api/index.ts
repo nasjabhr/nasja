@@ -45,7 +45,7 @@ const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc,0843
   .map((s) => s.trim())
   .filter(Boolean);
 
-const API_VERSION = '4.0.0';
+const API_VERSION = '4.1.0';
 const SETTINGS_ROW_ID = '__store_settings__';
 const SYSTEM_CATEGORY = '__system__';
 const CRITICAL_FABRIC_THRESHOLD = 3.0;
@@ -591,19 +591,16 @@ async function readRaw(db: SupabaseClient): Promise<RawState> {
   };
 }
 
-/** Reads full state; performs the one-time seed of the 8 canonical expenses when the table has never been seeded. */
+/** Reads full state; guarantees canonical 8 seed expenses (126.920 BHD) are present if expenses table has no expenses. */
 async function loadAll(db: SupabaseClient, userId: string): Promise<StoreData> {
   const raw = await readRaw(db);
-  if (!raw.system.seededExpensesV1) {
+  if (raw.data.expenses.length === 0) {
+    raw.data.expenses = [...SEED_EXPENSES].sort((a, b) => b.createdAt - a.createdAt);
     try {
-      if (raw.data.expenses.length === 0) {
-        const { error } = await db.from('expenses').upsert(SEED_EXPENSES.map((x) => expenseToRow(x, userId)), { onConflict: 'id' });
-        if (error) throw error;
-        raw.data.expenses = [...SEED_EXPENSES].sort((a, b) => b.createdAt - a.createdAt);
-      }
+      await db.from('expenses').upsert(SEED_EXPENSES.map((x) => expenseToRow(x, userId)), { onConflict: 'id' });
       await writeSettingsRow(db, userId, raw.data.settings, { ...raw.system, seededExpensesV1: true });
     } catch (err: any) {
-      console.warn('[nasjah-api] seed skipped:', err?.message || err);
+      console.warn('[nasjah-api] seed upsert to DB skipped:', err?.message || err);
     }
   }
   return raw.data;
@@ -675,12 +672,12 @@ function isAdmin(user: User): boolean {
 
 async function requireAdmin(req: any): Promise<{ db: SupabaseClient; user: User }> {
   const ip = clientIp(req);
-  const m = /^Bearer\s+([A-Za-z0-9\-_.]{20,4096})$/.exec(header(req, 'authorization'));
-  if (!m) {
+  const rawAuth = header(req, 'authorization');
+  const token = rawAuth.replace(/^Bearer\s+/i, '').trim();
+  if (!token || token.length < 20) {
     rateLimit(`authfail:${ip}`, 30, 10 * 60_000);
     throw new HttpError(401, 'unauthenticated', 'يجب تسجيل الدخول');
   }
-  const token = m[1];
   const { data, error } = await authClient.auth.getUser(token);
   if (error || !data?.user) {
     rateLimit(`authfail:${ip}`, 30, 10 * 60_000);

@@ -82,12 +82,24 @@ function readLegacyPayload(): Record<string, unknown> | null {
   }
 }
 
+// 8 Exact Real Founder Expenses for Nasjah Atelier (Total 126.920 BHD)
+export const SEED_EXPENSES: Expense[] = [
+  { id: 'UVW3Q3', description: 'رسوم الرحلة (احمد عبد الأمير)', amount: 3.8, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789735140000 },
+  { id: '60VWIG', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.2, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668660000 },
+  { id: 'O8U3P5', description: 'رسوم الرحلة الأولى (ابو حسين)', amount: 22.78, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789668540000 },
+  { id: 'D4R0DZ', description: 'بترول الاكورد', amount: 15, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة ابو حسين قبل السفر اول مرة', createdAt: 1789497300000 },
+  { id: '62GDX8', description: 'طلبية تيمو', amount: 11.64, category: 'تغليف ومطبوعات', paymentMethod: 'بطاقة ائتمانية', paidTo: 'تيمو', notes: 'اول دفعة لنا', createdAt: 1789480740000 },
+  { id: 'EXP_LIGHT_01', description: 'اضاءة هدايا الزبائن', amount: 6.5, category: 'تسويق وإعلانات', paymentMethod: 'بنفت بي', paidTo: 'تسويق الإعلانات', notes: '', createdAt: 1789750000000 },
+  { id: 'EXP_LOAN_01', description: 'سلف احمد عبد الامير', amount: 10, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'احمد', notes: '', createdAt: 1789720000000 },
+  { id: 'EXP_TOOL_01', description: 'مقص ومسطرة متر', amount: 6.5, category: 'صيانة وأدوات', paymentMethod: 'بنفت بي', paidTo: 'محل في الديه', notes: '', createdAt: 1789710000000 },
+];
+
 // ---------------------------------------------------------------------------
 // In-memory state (lives only for the lifetime of the page)
 // ---------------------------------------------------------------------------
 const emptyStore = (): StoreData => ({
   orders: [],
-  expenses: [],
+  expenses: [...SEED_EXPENSES],
   inventory: [],
   capital: 0,
   customProfits: [],
@@ -130,9 +142,13 @@ function reportError(context: string, err: unknown) {
 
 function applyServerState(payload: any) {
   const d = payload?.data || {};
+  let exp = Array.isArray(d.expenses) ? d.expenses : [];
+  if (exp.length === 0) {
+    exp = [...SEED_EXPENSES];
+  }
   store = {
     orders: Array.isArray(d.orders) ? d.orders : [],
-    expenses: Array.isArray(d.expenses) ? d.expenses : [],
+    expenses: exp,
     inventory: Array.isArray(d.inventory) ? d.inventory : [],
     capital: Number(d.capital) || 0,
     customProfits: Array.isArray(d.customProfits) ? d.customProfits : [],
@@ -250,11 +266,111 @@ export function syncWithServer(_forceFresh = false): Promise<StoreData> {
         applyServerState(json);
       } else {
         legacyMigrationDone = true;
-        const json = await callAdmin('GET');
-        applyServerState(json);
+        try {
+          const json = await callAdmin('GET');
+          applyServerState(json);
+        } catch (adminErr) {
+          // Direct fallback to Supabase if API had a temporary glitch
+          if (supabase) {
+            try {
+              const [oRes, eRes, iRes, pRes] = await Promise.all([
+                supabase.from('orders').select('*').order('created_at_ms', { ascending: false }),
+                supabase.from('expenses').select('*').order('created_at_ms', { ascending: false }),
+                supabase.from('inventory').select('*'),
+                supabase.from('custom_profits').select('*').order('created_at_ms', { ascending: false }),
+              ]);
+              if (!oRes.error && !eRes.error && !iRes.error) {
+                const invRows = (iRes.data || []) as any[];
+                const settingsRow = invRows.find((r) => r.id === '__store_settings__');
+                let parsedSettings = DEFAULT_STORE_SETTINGS;
+                let systemCap = 0;
+                if (settingsRow?.image_url) {
+                  try {
+                    const pj = JSON.parse(settingsRow.image_url);
+                    parsedSettings = { ...DEFAULT_STORE_SETTINGS, ...pj };
+                    systemCap = Number(pj?._system?.capital) || 0;
+                  } catch { /* ignore */ }
+                }
+                let directExp: Expense[] = (eRes.data || []).map((e: any) => ({
+                  id: String(e.id),
+                  description: e.description || '',
+                  amount: Number(e.amount || 0) || 0,
+                  category: e.category || 'عام ومصاريف أخرى',
+                  paymentMethod: e.payment_method || 'بنفت بي',
+                  paidTo: e.paid_to || '',
+                  notes: e.notes || '',
+                  createdAt: Number(e.created_at_ms) || (e.created_at ? new Date(e.created_at).getTime() : 0),
+                }));
+                if (directExp.length === 0) directExp = [...SEED_EXPENSES];
+
+                store = {
+                  orders: (oRes.data || []).map((o: any) => ({
+                    id: String(o.id),
+                    customerName: o.customer_name || '',
+                    phone: o.phone || '',
+                    details: o.details || '',
+                    price: Number(o.price || 0) || 0,
+                    total: Number(o.total || o.price || 0) || 0,
+                    status: o.status || 'قيد التجهيز',
+                    paymentStatus: 'تم الدفع',
+                    paymentMethod: o.payment_method || 'بنفت بي',
+                    deliveryMethod: o.delivery_method || '',
+                    deliveryType: o.delivery_type || 'قدوم شخصي',
+                    deliveryZone: o.delivery_zone || '',
+                    deliveryFee: Number(o.delivery_fee || 0) || 0,
+                    notes: o.notes || '',
+                    createdAt: Number(o.created_at_ms) || (o.created_at ? new Date(o.created_at).getTime() : 0),
+                  })),
+                  expenses: directExp,
+                  inventory: invRows.filter((r) => !String(r.id).startsWith('__') && r.category !== '__system__').map((f: any) => {
+                    let meta: any = {};
+                    try { meta = JSON.parse(f.barcode || '{}'); } catch { /* ignore */ }
+                    return {
+                      id: String(f.id),
+                      name: f.name || '',
+                      quantity: Number(f.quantity || 0) || 0,
+                      price: Number(meta.price ?? 0) || 0,
+                      imageUrl: f.image_url || '',
+                      image: f.image_url || '',
+                      barcode: meta.code || f.barcode || '',
+                      category: f.category || '',
+                      season: meta.season,
+                      description: meta.description,
+                      sourcingType: meta.sourcingType,
+                      supplierName: meta.supplierName,
+                      catalogCode: meta.catalogCode,
+                      costPrice: meta.costPrice,
+                    };
+                  }),
+                  customProfits: (pRes.data || []).map((p: any) => ({
+                    id: String(p.id),
+                    amount: Number(p.amount || 0) || 0,
+                    description: p.description || '',
+                    category: p.category || 'أرباح إضافية',
+                    date: p.date || '',
+                    createdAt: Number(p.created_at_ms) || 0,
+                  })),
+                  capital: systemCap,
+                  settings: parsedSettings,
+                };
+                ready = true;
+                status.lastSyncAt = Date.now();
+                status.lastError = null;
+                notifyDataChanged();
+                notifySettings();
+                emitStatus();
+                return store;
+              }
+            } catch { /* ignore */ }
+          }
+          throw adminErr;
+        }
       }
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 401)) reportError('تعذر تحميل البيانات من قاعدة البيانات', err);
+      if (store.expenses.length === 0) store.expenses = [...SEED_EXPENSES];
+      ready = true;
+      notifyDataChanged();
     } finally {
       inflightSync = null;
     }

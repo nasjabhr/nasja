@@ -20,6 +20,7 @@ import {
   RotateCw
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
+import SplashScreen from '../components/SplashScreen';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import { CRITICAL_FABRIC_THRESHOLD, StoreSettings, DEFAULT_STORE_SETTINGS, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
 import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
@@ -337,6 +338,16 @@ export default function Store() {
       return acc + (groupedFabrics[seasonKey]?.length || 0);
     }, 0);
   }, [effectiveSeasonsOrder, groupedFabrics]);
+
+  if (loading) {
+    return (
+      <SplashScreen
+        statusText="جارِ تجهيز تشكيلة الأقمشة الفاخرة من قاعدة البيانات..."
+        subTitle={storeSettings.storeTagline || 'أقمشة رجالية فاخرة ومختارة بعناية'}
+        onRetry={() => fetchCatalogAndSettings(true)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#FAF7F0] text-[#1D3A30] font-sans antialiased selection:bg-[#C7B895]/30 selection:text-[#1D3A30] text-right flex flex-col overflow-x-hidden" dir="rtl">
