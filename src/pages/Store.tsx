@@ -3,21 +3,21 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
   X, 
-  Scissors,
   Instagram, 
-  MoreVertical,
-  Layers,
-  Sparkles,
-  Truck,
-  User,
-  ArrowUp,
-  CheckCircle2,
-  RotateCw
+  MoreVertical, 
+  Layers, 
+  Sparkles, 
+  Truck, 
+  User, 
+  MapPin, 
+  ArrowUp, 
+  CheckCircle2, 
+  RotateCw 
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import SplashScreen from '../components/SplashScreen';
 import WhatsAppIcon from '../components/WhatsAppIcon';
-import { StoreSettings, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
+import { StoreSettings } from '../types';
 import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
 export interface PublicFabric {
@@ -82,9 +82,10 @@ export default function Store() {
 
   // Receiving mechanism: 'قدوم شخصي' (استلام من المحل) or 'توصيل'
   const [deliveryType, setDeliveryType] = useState<'قدوم شخصي' | 'توصيل'>('قدوم شخصي');
-  const [selectedGovernorate, setSelectedGovernorate] = useState<BahrainGovernorateName>('المحافظة الشمالية');
-  const [selectedArea, setSelectedArea] = useState<string>('سار');
-  const [addressDetails, setAddressDetails] = useState<string>('');
+  const [customerArea, setCustomerArea] = useState<string>('');
+  const [customerHouse, setCustomerHouse] = useState<string>('');
+  const [customerBlock, setCustomerBlock] = useState<string>('');
+  const [customerRoad, setCustomerRoad] = useState<string>('');
 
   // Live update if settings change in admin
   useEffect(() => {
@@ -329,19 +330,28 @@ export default function Store() {
     const totalPriceStr = (targetOption.price * defaultMeters).toFixed(2);
 
     let deliveryMethodStr = 'استلام من المحل';
+    let totalLine = `• إجمالي القماش: ${totalPriceStr} د.ب`;
+    let deliveryFeeLine = '• رسوم التوصيل: لا يوجد (استلام من المحل)';
+
     if (deliveryType === 'توصيل') {
-      const area = selectedArea || selectedGovernorate;
-      const addr = addressDetails.trim() ? ` (${addressDetails.trim()})` : '';
-      deliveryMethodStr = `توصيل - ${area}${addr}`;
+      const area = customerArea.trim() || '...';
+      const house = customerHouse.trim() || '...';
+      const block = customerBlock.trim() || '...';
+      const road = customerRoad.trim() || '...';
+      deliveryMethodStr = `توصيل - ${area} (منزل: ${house} / مجمع: ${block} / طريق: ${road})`;
+      totalLine = `• إجمالي القماش: ${totalPriceStr} د.ب (غير شامل التوصيل)`;
+      deliveryFeeLine = '• رسوم التوصيل: تُحدد مع المندوب عند التأكيد';
     }
 
     const msg = `السلام عليكم ورحمة الله وبركاته، متجر نَسْجَة للأقمشة الرجالية
-أود طلب القماش الاّتي:
+أود طلب القماش الآتي:
 • اسم القماش: ${targetOption.fullName}
 • سعر المتر: ${unitPriceStr} د.ب
-• عدد الأمتار: ${formattedMetersStr}
+• عدد الأمتار: ${formattedMetersStr} متر
+• قيمة القماش: ${totalPriceStr} د.ب
 • طريقة الاستلام: ${deliveryMethodStr}
-• السعر الإجمالي: ${totalPriceStr} د.ب`;
+${totalLine}
+${deliveryFeeLine}`;
 
     return `https://wa.me/${whatsAppPhone}?text=${encodeURIComponent(msg)}`;
   };
@@ -514,22 +524,18 @@ export default function Store() {
 
       {/* 2.5 LUXURY VALUE PROPOSITION BANNER */}
       <div className="bg-[#FAF7F0] border-b border-[#C7B895]/25 py-2.5 px-4 shadow-2xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between sm:justify-center gap-3 sm:gap-8 text-[11px] sm:text-xs font-bold text-[#1D3A30]/80 overflow-x-auto no-scrollbar whitespace-nowrap">
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#A99872]" />
-            <span>🇧🇭 مملكة البحرين</span>
-          </div>
+        <div className="max-w-6xl mx-auto flex items-center justify-center gap-4 sm:gap-8 text-[11px] sm:text-xs font-bold text-[#1D3A30]/85 overflow-x-auto no-scrollbar whitespace-nowrap">
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Truck className="w-3.5 h-3.5 text-[#A99872]" />
-            <span>توصيل لكافة المحافظات</span>
+            <span>توصيل لكافة المناطق</span>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <Scissors className="w-3.5 h-3.5 text-[#A99872]" />
-            <span>أقمشة وتفصيل راقٍ</span>
-          </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0 hidden xs:flex">
             <Sparkles className="w-3.5 h-3.5 text-[#A99872]" />
-            <span>أرقى الخامات اليابانية والكورية</span>
+            <span>أفخر خامات الأقمشة الرجالية</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <WhatsAppIcon className="w-3.5 h-3.5 text-[#25D366]" />
+            <span>طلب مباشر عبر واتساب</span>
           </div>
         </div>
       </div>
@@ -928,67 +934,71 @@ export default function Store() {
                     animate={{ opacity: 1, y: 0 }}
                     className="pt-2 border-t border-[#C7B895]/30 space-y-3"
                   >
+                    {/* Area Input */}
+                    <div>
+                      <label className="text-[11px] font-bold text-[#1D3A30] flex items-center gap-1.5 mb-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-[#A99872]" />
+                        <span>المنطقة:</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="اكتب اسم منطقتك (مثال: أبو صيبع)"
+                        value={customerArea}
+                        onChange={(e) => setCustomerArea(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold placeholder:font-normal placeholder:text-[#1D3A30]/40 shadow-2xs"
+                      />
+                    </div>
+
+                    {/* 3 Distinct Address Inputs */}
                     <div>
                       <span className="text-[11px] font-bold text-[#1D3A30] block mb-1.5">
-                        اختر المحافظة:
+                        تفاصيل العنوان:
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                        {(Object.keys(BAHRAIN_GOVERNORATES) as BahrainGovernorateName[]).map((govName) => {
-                          const gov = BAHRAIN_GOVERNORATES[govName];
-                          const isSelected = selectedGovernorate === govName;
-                          return (
-                            <button
-                              key={govName}
-                              type="button"
-                              onClick={() => {
-                                setSelectedGovernorate(govName);
-                                if (gov.areas.length > 0) {
-                                  setSelectedArea(gov.areas[0]);
-                                }
-                              }}
-                              className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center active:scale-98 ${
-                                isSelected
-                                  ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
-                                  : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
-                              }`}
-                            >
-                              <span className="text-[11px] font-black">{gov.shortName}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
+                            المنزل / المبنى:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="مثال: 123"
+                            value={customerHouse}
+                            onChange={(e) => setCustomerHouse(e.target.value)}
+                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
+                            المجمع:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="مثال: 456"
+                            value={customerBlock}
+                            onChange={(e) => setCustomerBlock(e.target.value)}
+                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
+                            الطريق / الشارع:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="مثال: 789"
+                            value={customerRoad}
+                            onChange={(e) => setCustomerRoad(e.target.value)}
+                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    {/* Cascading Areas Dropdown */}
-                    <div>
-                      <span className="text-[11px] font-bold text-[#1D3A30] block mb-1">
-                        اختر منطقة التوصيل ({BAHRAIN_GOVERNORATES[selectedGovernorate]?.name}):
-                      </span>
-                      <select
-                        value={selectedArea}
-                        onChange={(e) => setSelectedArea(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold"
-                      >
-                        {BAHRAIN_GOVERNORATES[selectedGovernorate]?.areas.map((area) => (
-                          <option key={area} value={area}>
-                            {area}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Additional Address Details */}
-                    <div>
-                      <span className="text-[10px] text-[#1D3A30]/70 font-medium block mb-1">
-                        تفاصيل العنوان (المجمع / الشارع / المنزل - اختياري):
-                      </span>
-                      <input
-                        type="text"
-                        placeholder="مثال: مجمع 1234، طريق 56، منزل 78"
-                        value={addressDetails}
-                        onChange={(e) => setAddressDetails(e.target.value)}
-                        className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30]"
-                      />
+                    <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[10px] text-[#1D3A30]/80 flex items-center justify-between">
+                      <span className="font-bold">رسوم التوصيل:</span>
+                      <span className="text-[#1D3A30] font-medium">تُحدد مع المندوب عند التأكيد</span>
                     </div>
                   </motion.div>
                 )}
@@ -997,11 +1007,19 @@ export default function Store() {
               {/* Price Calculation Summary (Zero Delivery Fee added) */}
               <div className="p-4 rounded-2xl bg-[#1D3A30] text-[#FAF7F0] space-y-2 shadow-sm border border-[#C7B895]/30">
                 <div className="flex items-center justify-between text-xs text-[#FAF7F0]/80">
-                  <span>سعر المتر × {customMeters} متر:</span>
-                  <span className="font-mono">{(currentPrice * customMeters).toFixed(2)} د.ب</span>
+                  <span>قيمة القماش ({customMeters} متر):</span>
+                  <span className="font-mono font-bold">{(currentPrice * customMeters).toFixed(2)} د.ب</span>
                 </div>
+                {deliveryType === 'توصيل' && (
+                  <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
+                    <span>رسوم التوصيل:</span>
+                    <span>مع المندوب عند التأكيد</span>
+                  </div>
+                )}
                 <div className="flex items-baseline justify-between pt-1 border-t border-[#C7B895]/20">
-                  <span className="text-xs font-extrabold text-[#E8D5A8]">السعر الإجمالي:</span>
+                  <span className="text-xs font-extrabold text-[#E8D5A8]">
+                    {deliveryType === 'توصيل' ? 'إجمالي القماش (غير شامل التوصيل):' : 'السعر الإجمالي:'}
+                  </span>
                   <div className="flex items-baseline gap-1">
                     <span className="text-xl font-black text-white font-mono">{estimatedTotal}</span>
                     <span className="text-xs font-bold text-[#E8D5A8]">د.ب</span>
