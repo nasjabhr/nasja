@@ -779,8 +779,22 @@ export default async function handler(req: any, res: any) {
   const route = resolveRoute(req);
   try {
     switch (route) {
-      case 'health':
-        return send(res, 200, { ok: true, version: API_VERSION, secureMode: HAS_SERVICE_ROLE, time: NOW() });
+      case 'health': {
+        const db = serviceClient || authClient;
+        const [eRes, pRes] = await Promise.all([
+          db.from('expenses').select('*'),
+          db.from('custom_profits').select('*'),
+        ]);
+        return send(res, 200, {
+          ok: true,
+          version: API_VERSION,
+          secureMode: HAS_SERVICE_ROLE,
+          time: NOW(),
+          expensesCount: (eRes.data || []).length,
+          expenses: eRes.data || [],
+          customProfits: pRes.data || [],
+        });
+      }
       case 'store':
         return await handlePublicStore(req, res);
       case 'admin':
