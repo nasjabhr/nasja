@@ -469,7 +469,7 @@ export default function Expenses() {
                     </label>
                     <input
                       type="number"
-                      step="0.01"
+                      step="any"
                       required
                       placeholder="0.00"
                       value={expenseForm.amount}

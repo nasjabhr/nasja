@@ -10,12 +10,13 @@ export default function Inventory() {
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [editingItem, setEditingItem] = useState<Fabric | null>(null);
   const [fabricToDelete, setFabricToDelete] = useState<Fabric | null>(null);
+  const [fabricStructure, setFabricStructure] = useState<'single' | 'set'>('single');
+  const [setCount, setSetCount] = useState<number>(4);
   const [newFabric, setNewFabric] = useState<{
     name: string;
     quantity: number | string;
     price: number | string;
     imageUrl: string;
-    season?: string;
     description?: string;
     sourcingType?: SourcingType;
     supplierName?: string;
@@ -26,7 +27,6 @@ export default function Inventory() {
     quantity: 22.5,
     price: '',
     imageUrl: '',
-    season: 'صيفي',
     description: '',
     sourcingType: 'catalog',
     supplierName: '',
@@ -116,12 +116,13 @@ export default function Inventory() {
   const openAddModal = () => {
     setModalMode('add');
     setEditingItem(null);
+    setFabricStructure('single');
+    setSetCount(4);
     setNewFabric({
       name: '',
       quantity: activeTab === 'أقمشة' ? 22.5 : 10,
       price: '',
       imageUrl: '',
-      season: 'صيفي',
       description: '',
       sourcingType: 'catalog',
       supplierName: '',
@@ -134,13 +135,13 @@ export default function Inventory() {
   const openEditModal = (item: Fabric) => {
     setModalMode('edit');
     setEditingItem(item);
+    setFabricStructure('single');
     const itemSourcing = item.sourcingType || (item.supplierName ? 'catalog' : 'stock');
     setNewFabric({
       name: item.name,
       quantity: item.quantity,
       price: item.price || '',
       imageUrl: item.imageUrl || item.image || '',
-      season: item.season || 'صيفي',
       description: item.description || '',
       sourcingType: itemSourcing,
       supplierName: item.supplierName || '',
@@ -162,15 +163,56 @@ export default function Inventory() {
     const costNum = parseFloat(String(newFabric.costPrice || 0));
 
     const cleanQty = isCatalog ? 999 : (!isNaN(qtyNum) ? (isFabric ? Math.round(qtyNum * 2) / 2 : Math.round(qtyNum)) : 0);
-    const cleanPrice = isFabric ? (!isNaN(priceNum) ? Math.round(priceNum * 100) / 100 : 0) : 0;
-    const cleanCost = !isNaN(costNum) && costNum >= 0 ? Math.round(costNum * 100) / 100 : undefined;
+    const cleanPrice = isFabric ? (!isNaN(priceNum) ? Math.round(priceNum * 1000) / 1000 : 0) : 0;
+    const cleanCost = !isNaN(costNum) && costNum >= 0 ? Math.round(costNum * 1000) / 1000 : undefined;
+
+    // If adding a complete set of numbered fabrics
+    if (modalMode === 'add' && isFabric && fabricStructure === 'set') {
+      const baseName = newFabric.name.trim();
+      const count = Math.max(2, setCount);
+      const itemsToCreate: Fabric[] = [];
+      const timestamp = Date.now();
+
+      for (let i = 1; i <= count; i++) {
+        itemsToCreate.push({
+          id: `${timestamp}_${i}`,
+          name: `${baseName} - ${i}`,
+          quantity: cleanQty,
+          price: cleanPrice,
+          imageUrl: newFabric.imageUrl || undefined,
+          category: activeTab,
+          description: newFabric.description?.trim() || undefined,
+          sourcingType: newFabric.sourcingType || 'catalog',
+          supplierName: isCatalog ? (newFabric.supplierName?.trim() || undefined) : undefined,
+          catalogCode: isCatalog ? (newFabric.catalogCode ? `${newFabric.catalogCode.trim()} - ${i}` : undefined) : undefined,
+          costPrice: cleanCost
+        });
+      }
+
+      saveInventory([...itemsToCreate, ...inventory]);
+      setShowModal(false);
+      setEditingItem(null);
+      setFabricStructure('single');
+      setSetCount(4);
+      setNewFabric({
+        name: '',
+        quantity: 22.5,
+        price: '',
+        imageUrl: '',
+        description: '',
+        sourcingType: 'catalog',
+        supplierName: '',
+        catalogCode: '',
+        costPrice: ''
+      });
+      return;
+    }
 
     const fabricPayload: Partial<Fabric> = {
       name: newFabric.name.trim(),
       quantity: cleanQty,
       price: cleanPrice,
       imageUrl: newFabric.imageUrl || undefined,
-      season: isFabric ? (newFabric.season || 'صيفي') : undefined,
       description: newFabric.description?.trim() || undefined,
       sourcingType: isFabric ? (newFabric.sourcingType || 'catalog') : undefined,
       supplierName: isCatalog ? (newFabric.supplierName?.trim() || undefined) : undefined,
@@ -197,7 +239,6 @@ export default function Inventory() {
         price: fabricPayload.price!,
         imageUrl: fabricPayload.imageUrl,
         category: activeTab,
-        season: fabricPayload.season,
         description: fabricPayload.description,
         sourcingType: fabricPayload.sourcingType,
         supplierName: fabricPayload.supplierName,
@@ -210,12 +251,13 @@ export default function Inventory() {
 
     setShowModal(false);
     setEditingItem(null);
+    setFabricStructure('single');
+    setSetCount(4);
     setNewFabric({
       name: '',
       quantity: 22.5,
       price: '',
       imageUrl: '',
-      season: 'صيفي',
       description: '',
       sourcingType: 'catalog',
       supplierName: '',
@@ -630,14 +672,97 @@ export default function Inventory() {
                   </div>
                 )}
 
+                {/* Fabric Structure: Single Fabric or Complete Numbered Set */}
+                {activeTab === 'أقمشة' && modalMode === 'add' && (
+                  <div className="space-y-2 p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-[#1D3A30]">
+                        نوع وتنسيق القماش *
+                      </label>
+                      <span className="text-[10px] text-[#A99872] font-semibold">مفرد أو مجموعة مرقمة</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setFabricStructure('single')}
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          fabricStructure === 'single'
+                            ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                            : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
+                        }`}
+                      >
+                        <span>قماش مفرد لوحده</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFabricStructure('set')}
+                        className={`p-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                          fabricStructure === 'set'
+                            ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                            : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
+                        }`}
+                      >
+                        <span>مجموعة كاملة مرقمة ✨</span>
+                      </button>
+                    </div>
+
+                    {fabricStructure === 'set' && (
+                      <div className="pt-2 border-t border-[#C7B895]/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-[#1D3A30]">عدد الأقمشة داخل المجموعة:</span>
+                          <div className="flex items-center gap-1">
+                            {[2, 3, 4, 5, 6, 8, 10].map((num) => (
+                              <button
+                                key={num}
+                                type="button"
+                                onClick={() => setSetCount(num)}
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition ${
+                                  setCount === num
+                                    ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30]'
+                                    : 'bg-white text-[#1D3A30] border-[#C7B895]/30'
+                                }`}
+                              >
+                                {num}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="2"
+                            max="30"
+                            required
+                            value={setCount}
+                            onChange={(e) => setSetCount(Math.max(2, parseInt(e.target.value) || 2))}
+                            className="w-16 p-1.5 rounded-xl border border-[#C7B895]/40 bg-white font-bold font-mono text-xs text-center text-[#1D3A30]"
+                          />
+                          <span className="text-[11px] text-[#1D3A30]/80">
+                            أقمشة تترتب تلقائياً بأرقام من 1 إلى {setCount}
+                          </span>
+                        </div>
+
+                        <p className="text-[10px] text-[#A99872] font-semibold bg-white p-2 rounded-xl border border-[#C7B895]/20">
+                          💡 سيتم تلقائياً إنشاء الأقمشة: {newFabric.name ? `${newFabric.name.trim()} - 1` : 'المجموعة - 1'} إلى {newFabric.name ? `${newFabric.name.trim()} - ${setCount}` : `المجموعة - ${setCount}`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    {activeTab === 'أقمشة' ? 'اسم القماش *' : 'اسم مادة التغليف *'}
+                    {fabricStructure === 'set' && activeTab === 'أقمشة' && modalMode === 'add'
+                      ? 'اسم المجموعة الأساسي (مثال: برج العرب) *'
+                      : (activeTab === 'أقمشة' ? 'اسم القماش *' : 'اسم مادة التغليف *')}
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder={activeTab === 'أقمشة' ? 'مثال: قطن كوري، صوف مخلوط، ياباني واقف...' : 'مثال: أكياس ورقية، علب هدايا، كروت إهداء...'}
+                    placeholder={fabricStructure === 'set' && activeTab === 'أقمشة' && modalMode === 'add' ? 'مثال: برج العرب' : (activeTab === 'أقمشة' ? 'مثال: قطن كوري، ياباني واقف...' : 'مثال: أكياس ورقية، علب هدايا، كروت إهداء...')}
                     value={newFabric.name}
                     onChange={(e) => setNewFabric({ ...newFabric, name: e.target.value })}
                     className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
@@ -689,7 +814,7 @@ export default function Inventory() {
                         </label>
                         <input
                           type="number"
-                          step="0.01"
+                          step="any"
                           min="0"
                           placeholder="0.00"
                           value={newFabric.costPrice}
@@ -704,7 +829,7 @@ export default function Inventory() {
                         </label>
                         <input
                           type="number"
-                          step="0.01"
+                          step="any"
                           min="0"
                           required
                           placeholder="0.00"
@@ -749,7 +874,7 @@ export default function Inventory() {
                       </label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="any"
                         required
                         placeholder="0.00"
                         value={newFabric.price}
@@ -790,35 +915,6 @@ export default function Inventory() {
                     className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30] resize-none placeholder:text-[#1D3A30]/35"
                   />
                 </div>
-
-                {activeTab === 'أقمشة' && (
-                  <div>
-                    <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                      موسم القماش (للتصنيف في قائمة المتجر)
-                    </label>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {[
-                        { id: 'صيفي', label: 'صيفي ☀️' },
-                        { id: 'شتوي', label: 'شتوي ❄️' },
-                        { id: 'ربيعي', label: 'ربيعي 🌿' },
-                        { id: 'كافة المواسم', label: 'كافة الفصول ✨' },
-                      ].map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setNewFabric({ ...newFabric, season: s.id })}
-                          className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition text-center cursor-pointer ${
-                            (newFabric.season || 'صيفي') === s.id
-                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
-                              : 'bg-white border-[#C7B895]/40 text-[#1D3A30] hover:bg-[#FAF7F0]'
-                          }`}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">

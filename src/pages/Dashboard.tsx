@@ -35,7 +35,7 @@ export default function Dashboard() {
   const [showAddFundsModal, setShowAddFundsModal] = useState(false);
   const [fundAmount, setFundAmount] = useState('');
   const [fundDesc, setFundDesc] = useState('');
-  const [fundCategory, setFundCategory] = useState('استرداد مشتريات شخصية');
+  const [fundCategory, setFundCategory] = useState('تعويض مصروف المشروع');
   const [fundDate, setFundDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [ordersSalesOnly, setOrdersSalesOnly] = useState(0);
 
@@ -143,13 +143,13 @@ export default function Dashboard() {
     await addCustomProfit({
       amount: amt,
       description: fundDesc.trim(),
-      category: fundCategory || 'استرداد مشتريات شخصية',
+      category: fundCategory || 'تعويض مصروف المشروع',
       date: fundDate || new Date().toISOString().split('T')[0]
     });
 
     setFundAmount('');
     setFundDesc('');
-    setFundCategory('استرداد مشتريات شخصية');
+    setFundCategory('تعويض مصروف المشروع');
     setShowAddFundsModal(false);
     reloadDashboardData();
   };
@@ -490,7 +490,7 @@ export default function Dashboard() {
                     <form onSubmit={handleSaveCapital} className="pt-2 flex items-center gap-2">
                       <input
                         type="number"
-                        step="0.01"
+                        step="any"
                         min="0"
                         autoFocus
                         value={capitalInput}
@@ -651,11 +651,11 @@ export default function Dashboard() {
                   </label>
                   <input
                     type="number"
-                    step="0.01"
-                    min="0.01"
+                    step="any"
+                    min="0.001"
                     required
                     autoFocus
-                    placeholder="0.00"
+                    placeholder="0.000"
                     value={fundAmount}
                     onChange={(e) => setFundAmount(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-sm font-mono font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
@@ -664,17 +664,16 @@ export default function Dashboard() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    نوع الإيراد / سبب الإيداع *
+                    نوع الإيراد *
                   </label>
                   <select
                     value={fundCategory}
                     onChange={(e) => setFundCategory(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-xs font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
                   >
-                    <option value="استرداد مشتريات شخصية">استرداد مشتريات شخصية (مثل أغراض شخصية من تيمو)</option>
-                    <option value="تعويض مصروف للمشروع">تعويض مصروف للمشروع</option>
-                    <option value="إيداع مؤقت لحساب المشروع">إيداع مؤقت لحساب المشروع</option>
-                    <option value="إيرادات أخرى">إيرادات متفرقة أخرى</option>
+                    <option value="تعويض مصروف المشروع">تعويض مصروف المشروع</option>
+                    <option value="كاش باك">كاش باك</option>
+                    <option value="أخرى">أخرى</option>
                   </select>
                 </div>
 

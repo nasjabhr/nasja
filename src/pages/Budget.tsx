@@ -19,7 +19,7 @@ export default function Budget() {
   const [showAddProfitModal, setShowAddProfitModal] = useState(false);
   const [profitAmount, setProfitAmount] = useState('');
   const [profitDesc, setProfitDesc] = useState('');
-  const [profitCategory, setProfitCategory] = useState('استرداد مشتريات شخصية');
+  const [profitCategory, setProfitCategory] = useState('تعويض مصروف المشروع');
   const [profitDate, setProfitDate] = useState(new Date().toISOString().split('T')[0]);
 
   const loadData = () => {
@@ -74,14 +74,14 @@ export default function Budget() {
     await addCustomProfit({
       amount: amt,
       description: profitDesc.trim(),
-      category: profitCategory || 'استرداد مشتريات شخصية',
+      category: profitCategory || 'تعويض مصروف المشروع',
       date: profitDate || new Date().toISOString().split('T')[0]
     });
 
     setShowAddProfitModal(false);
     setProfitAmount('');
     setProfitDesc('');
-    setProfitCategory('استرداد مشتريات شخصية');
+    setProfitCategory('تعويض مصروف المشروع');
     loadData();
   };
 
@@ -238,11 +238,11 @@ export default function Budget() {
                   </label>
                   <input
                     type="number"
-                    step="0.01"
-                    min="0.01"
+                    step="any"
+                    min="0.001"
                     required
                     autoFocus
-                    placeholder="0.00"
+                    placeholder="0.000"
                     value={profitAmount}
                     onChange={(e) => setProfitAmount(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-sm font-mono font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
@@ -251,17 +251,16 @@ export default function Budget() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    نوع الإيراد / سبب الإيداع *
+                    نوع الإيراد *
                   </label>
                   <select
                     value={profitCategory}
                     onChange={(e) => setProfitCategory(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-xs font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
                   >
-                    <option value="استرداد مشتريات شخصية">استرداد مشتريات شخصية (مثل أغراض شخصية من تيمو)</option>
-                    <option value="تعويض مصروف للمشروع">تعويض مصروف للمشروع</option>
-                    <option value="إيداع مؤقت لحساب المشروع">إيداع مؤقت لحساب المشروع</option>
-                    <option value="إيرادات أخرى">إيرادات متفرقة أخرى</option>
+                    <option value="تعويض مصروف المشروع">تعويض مصروف المشروع</option>
+                    <option value="كاش باك">كاش باك</option>
+                    <option value="أخرى">أخرى</option>
                   </select>
                 </div>
 

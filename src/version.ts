@@ -1,7 +1,7 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '4.2.0';
-export const APP_BUILD_DATE = '2026.10.03-inflows-cashflow';
+export const APP_VERSION = '4.3.0';
+export const APP_BUILD_DATE = '2026.10.03-collections-fils-precise';
 
 // Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {

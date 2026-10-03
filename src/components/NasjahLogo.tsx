@@ -26,7 +26,7 @@ export default function NasjahLogo({
   if (variant === 'icon' || variant === 'emblem') {
     return (
       <div 
-        className={`relative overflow-hidden rounded-full flex items-center justify-center shadow-xs select-none ${sizeMap[size]} ${className}`}
+        className={`relative overflow-hidden rounded-xl flex items-center justify-center shadow-xs select-none border border-[#C7B895]/30 ${sizeMap[size]} ${className}`}
         title="شعار نَسْجَة"
       >
         <img 
@@ -43,7 +43,7 @@ export default function NasjahLogo({
   if (variant === 'mark') {
     return (
       <div className={`flex items-center gap-2.5 select-none ${className}`}>
-        <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center shadow-xs flex-shrink-0">
+        <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-xs flex-shrink-0 border border-[#C7B895]/30">
           <img 
             src="/nasjah-logo.png" 
             alt="أيقونة نَسْجَة" 
@@ -54,11 +54,11 @@ export default function NasjahLogo({
         {showText && (
           <div className="min-w-0">
             <div className="flex items-center">
-              <span className="font-extrabold text-sm tracking-wider text-[#FAF7F0] font-sans">
-                &apos;نَسْجَة&apos;
+              <span className="font-black text-sm tracking-wide text-[#FAF7F0] font-sans">
+                نَسْجَة
               </span>
             </div>
-            <p className="text-[10px] text-[#C7B895] font-medium truncate">
+            <p className="text-[10px] text-[#C7B895] font-semibold truncate">
               أقمشة رجالية فاخرة
             </p>
           </div>
@@ -73,7 +73,7 @@ export default function NasjahLogo({
       <img 
         src="/nasjah-logo.png" 
         alt="شعار نَسْجَة" 
-        className="w-full h-auto max-w-[280px] rounded-full shadow-lg border border-[#C7B895]/40 object-contain"
+        className="w-full h-auto max-w-[280px] rounded-2xl shadow-xl border border-[#C7B895]/50 object-contain"
         referrerPolicy="no-referrer"
       />
     </div>
