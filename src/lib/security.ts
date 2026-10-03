@@ -9,7 +9,6 @@ const STORAGE_KEY_LAST_FAIL = 'nasjah_sec_last_fail';
 
 // Authorized emails (Nasjah Founders)
 export const AUTHORIZED_EMAILS: string[] = [
-  'nasjahbh@gmail.com',
   'nasjabhr@gmail.com',
 ];
 
@@ -107,7 +106,6 @@ export function resetFailedAttempts(): void {
 
 export const AUTHORIZED_UIDS: string[] = [
   '53cc7a5b-bc93-40ff-908e-d582d85e0efc',
-  '0843d2d4-0702-4ecf-800b-956155367d0a'
 ];
 export const AUTHORIZED_UID = '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
 
