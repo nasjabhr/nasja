@@ -15,10 +15,12 @@ export default function Budget() {
   const [expensesList, setExpensesList] = useState<any[]>([]);
   const [customProfitsList, setCustomProfitsList] = useState<CustomProfit[]>([]);
 
-  // Single Add Profit Modal State
+  // Single Add Inflow Modal State
   const [showAddProfitModal, setShowAddProfitModal] = useState(false);
   const [profitAmount, setProfitAmount] = useState('');
   const [profitDesc, setProfitDesc] = useState('');
+  const [profitCategory, setProfitCategory] = useState('استرداد مشتريات شخصية');
+  const [profitDate, setProfitDate] = useState(new Date().toISOString().split('T')[0]);
 
   const loadData = () => {
     const { orders: ords, expenses: expList, customProfits: profs } = getLocalData();
@@ -36,7 +38,7 @@ export default function Budget() {
     return () => window.removeEventListener(EVENT_DATA_UPDATED, handleUpdate);
   }, []);
 
-  // 1. Sales calculation: all paid non-cancelled orders + manual profits
+  // 1. Sales calculation: all paid non-cancelled orders
   const paidOrders = orders.filter(
     (o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي'
   );
@@ -46,21 +48,23 @@ export default function Budget() {
     0
   );
 
-  const manualProfits = customProfitsList.reduce(
+  // 2. Inflows / Reimbursed funds (مبالغ مستردة / إيرادات لحساب المشروع)
+  const manualInflows = customProfitsList.reduce(
     (sum: number, p: any) => sum + (Number(p.amount) || 0),
     0
   );
 
-  const totalSales = ordersSales + manualProfits;
+  // Total revenues = sales + reimbursed inflows
+  const totalRevenues = ordersSales + manualInflows;
 
-  // 2. Expenses calculation: all expenses recorded
+  // 3. Expenses calculation: all expenses recorded
   const totalExpenses = expensesList.reduce(
     (sum: number, e: any) => sum + (Number(e.amount) || 0),
     0
   );
 
-  // 3. Net Profit
-  const netProfit = totalSales - totalExpenses;
+  // 4. Net Operating Flow
+  const netFlow = totalRevenues - totalExpenses;
 
   const handleAddProfitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,13 +74,14 @@ export default function Budget() {
     await addCustomProfit({
       amount: amt,
       description: profitDesc.trim(),
-      category: 'أرباح إضافية',
-      date: new Date().toISOString().split('T')[0]
+      category: profitCategory || 'استرداد مشتريات شخصية',
+      date: profitDate || new Date().toISOString().split('T')[0]
     });
 
     setShowAddProfitModal(false);
     setProfitAmount('');
     setProfitDesc('');
+    setProfitCategory('استرداد مشتريات شخصية');
     loadData();
   };
 
@@ -88,16 +93,19 @@ export default function Budget() {
   return (
     <div className="space-y-3.5 max-w-xl mx-auto w-full select-none text-right font-sans" dir="rtl">
       
-      {/* Header bar with title and single add-profit button */}
+      {/* Header bar with title and single add button */}
       <div className="flex items-center justify-between px-1">
-        <h1 className="text-base font-black text-[#1D3A30]">الميزانية</h1>
+        <div>
+          <h1 className="text-base font-black text-[#1D3A30]">الإيرادات والمستردات</h1>
+          <p className="text-[11px] text-[#1D3A30]/60">متابعة تدفقات المتجر والمبالغ المستردة لحساب المشروع</p>
+        </div>
         <button
           type="button"
           onClick={() => setShowAddProfitModal(true)}
           className="py-1.5 px-3 rounded-xl bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] border border-[#C7B895]/40 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs active:scale-95 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5 text-[#E8D5A8]" />
-          <span>إضافة مبلغ</span>
+          <span>إضافة إيراد / مسترد</span>
         </button>
       </div>
 
@@ -106,32 +114,37 @@ export default function Budget() {
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         className={`rounded-3xl p-5 sm:p-6 text-center shadow-xs border transition-all ${
-          netProfit >= 0
+          netFlow >= 0
             ? 'bg-[#1D3A30] text-[#FAF7F0] border-[#C7B895]/40'
             : 'bg-rose-950 text-white border-rose-900'
         }`}
       >
         <span className="text-xs font-bold text-[#E8D5A8] tracking-wide block">
-          صافي الأرباح
+          صافي حركة الحساب التشغيلية
         </span>
 
-        {/* Net Profit Big Number */}
+        {/* Big Number */}
         <div className="flex items-baseline justify-center gap-1.5 my-2.5 font-mono">
           <span className="text-4xl sm:text-5xl font-black tracking-tight text-white">
-            {netProfit >= 0 ? `+${netProfit.toFixed(2)}` : netProfit.toFixed(2)}
+            {netFlow >= 0 ? `+${netFlow.toFixed(2)}` : netFlow.toFixed(2)}
           </span>
           <span className="text-sm font-bold text-[#E8D5A8]">د.ب</span>
         </div>
 
-        {/* Sales vs Expenses Grid */}
+        {/* Revenues vs Expenses Grid */}
         <div className="grid grid-cols-2 gap-2.5 mt-4 pt-3.5 border-t border-white/10 text-xs">
           <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
             <span className="text-[11px] text-[#C7B895] font-bold block mb-1">
-              إجمالي المبيعات
+              إجمالي الإيرادات والمستردات
             </span>
             <span className="text-base sm:text-lg font-black font-mono text-emerald-300 block">
-              +{totalSales.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+              +{totalRevenues.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
             </span>
+            {manualInflows > 0 && (
+              <span className="text-[10px] text-white/70 block mt-0.5">
+                مبيعات: {ordersSales.toFixed(2)} | مستردات: +{manualInflows.toFixed(2)}
+              </span>
+            )}
           </div>
 
           <div className="bg-white/10 p-3 rounded-2xl border border-white/10 text-right">
@@ -145,22 +158,27 @@ export default function Budget() {
         </div>
       </motion.div>
 
-      {/* Minimal Profit Log (Only if items exist) */}
+      {/* Reimbursed Inflows Log */}
       {customProfitsList.length > 0 && (
         <div className="bg-white rounded-2xl p-3 border border-[#C7B895]/30 space-y-2 shadow-2xs">
           <div className="flex items-center justify-between text-xs font-bold text-[#1D3A30] pb-1 border-b border-[#C7B895]/20">
-            <span>المبالغ المضافة ({customProfitsList.length})</span>
-            <span className="font-mono text-emerald-800">+{manualProfits.toFixed(2)} د.ب</span>
+            <span>سجل الإيرادات والمبالغ المستردة ({customProfitsList.length})</span>
+            <span className="font-mono text-emerald-800">+{manualInflows.toFixed(2)} د.ب</span>
           </div>
 
           <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
             {customProfitsList.map((profit) => (
               <div
                 key={profit.id}
-                className="flex items-center justify-between p-2 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-xs"
+                className="flex items-center justify-between p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-xs"
               >
                 <div>
-                  <span className="font-bold text-[#1D3A30] block">{profit.description}</span>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="font-bold text-[#1D3A30]">{profit.description}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
+                      {profit.category || 'مسترد مشتريات'}
+                    </span>
+                  </div>
                   <span className="text-[10px] text-[#1D3A30]/60 font-mono">{profit.date || 'اليوم'}</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -182,7 +200,7 @@ export default function Budget() {
         </div>
       )}
 
-      {/* Modal: Single modal for adding profit */}
+      {/* Modal: Single modal for adding inflow */}
       <AnimatePresence>
         {showAddProfitModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -200,7 +218,10 @@ export default function Budget() {
               className="relative bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl z-10 text-right space-y-3.5 border border-[#C7B895]/30"
             >
               <div className="flex items-center justify-between border-b border-[#C7B895]/20 pb-2.5">
-                <h3 className="text-xs font-black text-[#1D3A30]">إضافة مبلغ جديد</h3>
+                <div>
+                  <h3 className="text-xs font-black text-[#1D3A30]">إضافة إيراد / مبلغ مسترد لحساب المشروع</h3>
+                  <p className="text-[10px] text-[#1D3A30]/60">لا يغيّر رأس المال الأساسي، بل يُحسب كتدفق نقدي داخل</p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowAddProfitModal(false)}
@@ -230,24 +251,52 @@ export default function Budget() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    البيان *
+                    نوع الإيراد / سبب الإيداع *
+                  </label>
+                  <select
+                    value={profitCategory}
+                    onChange={(e) => setProfitCategory(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-xs font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
+                  >
+                    <option value="استرداد مشتريات شخصية">استرداد مشتريات شخصية (مثل أغراض شخصية من تيمو)</option>
+                    <option value="تعويض مصروف للمشروع">تعويض مصروف للمشروع</option>
+                    <option value="إيداع مؤقت لحساب المشروع">إيداع مؤقت لحساب المشروع</option>
+                    <option value="إيرادات أخرى">إيرادات متفرقة أخرى</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
+                    البيان / الوصف التفصيلي *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="بيان المبلغ..."
+                    placeholder="مثال: استرداد أغراض شخصية من طلبية تيمو..."
                     value={profitDesc}
                     onChange={(e) => setProfitDesc(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
                   />
                 </div>
 
+                <div>
+                  <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
+                    تاريخ التحويل
+                  </label>
+                  <input
+                    type="date"
+                    value={profitDate}
+                    onChange={(e) => setProfitDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs font-mono text-[#1D3A30]"
+                  />
+                </div>
+
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
                     type="submit"
-                    className="py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] font-bold rounded-xl transition text-xs shadow-xs cursor-pointer"
+                    className="py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] font-bold rounded-xl transition text-xs shadow-xs cursor-pointer active:scale-95"
                   >
-                    حفظ
+                    حفظ في حساب المشروع
                   </button>
                   <button
                     type="button"

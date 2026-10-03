@@ -31,11 +31,13 @@ export default function Dashboard() {
   const [isEditingCapital, setIsEditingCapital] = useState(false);
   const [capitalInput, setCapitalInput] = useState('');
   
-  // Add Funds Modal state (ولا تسميها أرباح)
+  // Reimbursed Inflows / Custom Inflow state (مبالغ مستردة وإيرادات مؤقتة وليست زيادة على رأس المال)
   const [showAddFundsModal, setShowAddFundsModal] = useState(false);
   const [fundAmount, setFundAmount] = useState('');
   const [fundDesc, setFundDesc] = useState('');
+  const [fundCategory, setFundCategory] = useState('استرداد مشتريات شخصية');
   const [fundDate, setFundDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [ordersSalesOnly, setOrdersSalesOnly] = useState(0);
 
   const reloadDashboardData = useCallback(() => {
     const local = getLocalData();
@@ -43,16 +45,20 @@ export default function Dashboard() {
     setCapital(Number(local.capital) || 0);
     setCustomProfits(local.customProfits || []);
 
-    // Strictly count paid orders that are NOT cancelled in sales + custom added amounts
-    const ordersSales = (local.orders || [])
-      .filter((order: any) => order.paymentStatus === 'تم الدفع' && order.status !== 'ملغي')
+    // Strictly count paid orders that are NOT cancelled in sales
+    const paidOrders = (local.orders || [])
+      .filter((order: any) => order.paymentStatus === 'تم الدفع' && order.status !== 'ملغي');
+    const ordersSales = paidOrders
       .reduce((sum: number, order: any) => sum + (order.total || order.price || 0), 0) || 0;
+    setOrdersSalesOnly(ordersSales);
     
-    const addedFundsTotal = (local.customProfits || [])
+    // Inflows from reimbursed personal items or temporary project deposits
+    const addedInflowsTotal = (local.customProfits || [])
       .reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
     
-    const totalSales = ordersSales + addedFundsTotal;
-    setSales(totalSales);
+    // Total revenues = Merchandise sales + Reimbursed inflows
+    const totalRevenues = ordersSales + addedInflowsTotal;
+    setSales(totalRevenues);
 
     const pendingSales = (local.orders || [])
       .filter((order: any) => (order.paymentStatus === 'قيد الدفع' || order.paymentStatus === 'آجل') && order.status !== 'ملغي')
@@ -62,7 +68,7 @@ export default function Dashboard() {
     const totalExp = (local.expenses || []).reduce((sum: number, exp: any) => sum + (Number(exp.amount) || 0), 0) || 0;
     setExpenses(totalExp);
 
-    return { totalSales, totalExp, local };
+    return { totalSales: totalRevenues, totalExp, local };
   }, []);
 
   useEffect(() => {
@@ -92,10 +98,11 @@ export default function Dashboard() {
   const pendingOrders = orders.filter(o => o.status === 'قيد التجهيز' || o.status === 'جاهز للتسليم');
   const deliveredOrdersCount = orders.filter(o => o.status === 'تم التسليم').length;
 
-  // Capital & Added Funds calculations
+  // Capital & Inflows calculations (المبالغ المستردة لا تزيد رأس المال الأساسي بل تُحسب كإيرادات لحساب المشروع)
   const baseCapital = capital || 0;
-  const addedFunds = customProfits.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-  const totalCapitalWithFunds = baseCapital + addedFunds;
+  const reimbursedInflows = customProfits.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const netOperatingFlow = sales - expenses;
+  const availableLiquidity = baseCapital + sales - expenses;
 
   const handleDeliverOrder = (orderId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -136,12 +143,13 @@ export default function Dashboard() {
     await addCustomProfit({
       amount: amt,
       description: fundDesc.trim(),
-      category: 'إيداع إضافي',
+      category: fundCategory || 'استرداد مشتريات شخصية',
       date: fundDate || new Date().toISOString().split('T')[0]
     });
 
     setFundAmount('');
     setFundDesc('');
+    setFundCategory('استرداد مشتريات شخصية');
     setShowAddFundsModal(false);
     reloadDashboardData();
   };
@@ -182,24 +190,26 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Net Profit Display */}
+        {/* Net Profit & Operating Flow Display */}
         <div className={`p-3.5 rounded-2xl flex items-center justify-between px-4 sm:px-6 border transition-all shadow-xs ${
-          netProfit >= 0 
+          netOperatingFlow >= 0 
             ? 'bg-gradient-to-l from-[#1D3A30] via-[#224438] to-[#1D3A30] text-[#FAF7F0] border-[#C7B895]/40' 
             : 'bg-gradient-to-l from-rose-950 via-rose-900 to-rose-950 text-white border-rose-900'
         }`}>
           <div className="text-right">
             <span className="text-xs sm:text-sm font-black text-[#E8D5A8] tracking-wide block">
-              صافي الأرباح
+              صافي حركة الحساب التشغيلية
             </span>
             <span className="text-[10px] sm:text-[11px] text-[#C7B895] font-semibold flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-[#E8D5A8] inline-block" />
-              {netProfit >= 0 ? 'أرباح تشغيلية مستقرة' : 'عجز تشغيلي'}
+              {reimbursedInflows > 0 
+                ? `مبيعات (${ordersSalesOnly.toFixed(2)}) + مستردات (${reimbursedInflows.toFixed(2)}) - مصروفات`
+                : (netOperatingFlow >= 0 ? 'أرباح تشغيلية مستقرة' : 'عجز تشغيلي')}
             </span>
           </div>
           <div className="text-left font-mono">
             <span className="text-xl sm:text-2xl lg:text-3xl font-black text-white leading-none tracking-tight">
-              {netProfit.toFixed(2)}
+              {netOperatingFlow.toFixed(2)}
             </span>
             <span className="text-xs sm:text-sm font-bold text-[#E8D5A8] mr-1.5">د.ب</span>
           </div>
@@ -210,10 +220,13 @@ export default function Dashboard() {
           <div className="p-2.5 sm:p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 flex items-center justify-between px-3.5 shadow-2xs hover:border-[#C7B895]/60 transition">
             <div>
               <span className="text-[11px] sm:text-xs font-bold text-[#1D3A30] block">
-                إجمالي المبيعات
+                إجمالي الإيرادات
               </span>
               <span className="text-[9px] sm:text-[10px] text-[#1D3A30]/65 block font-medium mt-0.5">
                 {orders.filter((o: any) => o.paymentStatus === 'تم الدفع' && o.status !== 'ملغي').length} طلب محصل
+                {reimbursedInflows > 0 && (
+                  <span className="text-emerald-800 font-bold mr-1">• {reimbursedInflows.toFixed(2)} مستردات</span>
+                )}
                 {pendingPaymentSales > 0 && (
                   <span className="text-amber-800 font-bold mr-1">• {pendingPaymentSales.toFixed(2)} معلّق/آجل</span>
                 )}
@@ -453,12 +466,12 @@ export default function Dashboard() {
               {/* Scrollable Body */}
               <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 no-scrollbar">
                 
-                {/* 1. رأس المال الأساسي */}
+                {/* 1. رأس المال الأساسي (ثابت ولا يزيده شيء) */}
                 <div className="bg-white rounded-2xl p-4 border border-[#C7B895]/30 shadow-2xs space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="text-xs font-bold text-[#1D3A30] block">رأس المال الأساسي</span>
-                      <span className="text-[10px] text-[#1D3A30]/60">المبلغ الأولي المخصص لتأسيس المتجر</span>
+                      <span className="text-[10px] text-[#1D3A30]/60">المبلغ الأولي المخصص لتأسيس المتجر (ثابت لا يزيده شيء)</span>
                     </div>
 
                     {!isEditingCapital && (
@@ -509,51 +522,51 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {/* 2. كم أضيف له (المبالغ المضافة) & إجمالي رأس المال */}
+                {/* 2. إيرادات ومبالغ مستردة & السيولة النقدية المتاحة (بدلاً من إجمالي رأس المال) */}
                 <div className="grid grid-cols-2 gap-2.5">
-                  {/* كم أضيف له */}
+                  {/* إيرادات ومبالغ مستردة */}
                   <div className="bg-white rounded-2xl p-3.5 border border-[#C7B895]/30 shadow-2xs text-right">
-                    <span className="text-[11px] font-bold text-[#1D3A30] block">كم أُضيف له</span>
-                    <span className="text-[9px] text-[#1D3A30]/60 block mb-1">إجمالي المبالغ المضافة</span>
+                    <span className="text-[11px] font-bold text-[#1D3A30] block">إيرادات ومستردات</span>
+                    <span className="text-[9px] text-[#1D3A30]/60 block mb-1">مبالغ مودعة كتعويضات/شخصي</span>
                     <div className="font-mono">
                       <span className="text-lg sm:text-xl font-black text-emerald-700 block">
-                        +{addedFunds.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+                        +{reimbursedInflows.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
                       </span>
                     </div>
                   </div>
 
-                  {/* إجمالي رأس المال المجمع */}
+                  {/* السيولة النقدية المتاحة حالياً في حساب المشروع */}
                   <div className="bg-white rounded-2xl p-3.5 border border-[#C7B895]/30 shadow-2xs text-right">
-                    <span className="text-[11px] font-bold text-[#1D3A30] block">إجمالي رأس المال</span>
-                    <span className="text-[9px] text-[#1D3A30]/60 block mb-1">الأساسي + المبالغ المضافة</span>
+                    <span className="text-[11px] font-bold text-[#1D3A30] block">السيولة المتاحة</span>
+                    <span className="text-[9px] text-[#1D3A30]/60 block mb-1">الرصيد الفعلي المتوفر</span>
                     <div className="font-mono">
                       <span className="text-lg sm:text-xl font-black text-[#1D3A30] block">
-                        {totalCapitalWithFunds.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+                        {availableLiquidity.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* 3. زر لإضافة المبالغ (ولا تسميها أرباح) */}
+                {/* 3. زر لإضافة إيراد / مبلغ مسترد لحساب المشروع */}
                 <button
                   type="button"
                   onClick={() => setShowAddFundsModal(true)}
                   className="w-full py-3 px-4 rounded-2xl bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] border border-[#C7B895]/40 text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs active:scale-98 cursor-pointer"
                 >
                   <Plus className="w-4 h-4 text-[#E8D5A8]" />
-                  <span>+ إضافة مبلغ جديد</span>
+                  <span>+ إضافة إيراد / مبلغ مسترد لحساب المشروع</span>
                 </button>
 
-                {/* 4. سجل المبالغ المضافة */}
+                {/* 4. سجل المبالغ المستردة والإيرادات */}
                 <div className="bg-white rounded-2xl p-3.5 border border-[#C7B895]/30 shadow-2xs space-y-2">
                   <div className="flex items-center justify-between pb-1.5 border-b border-[#C7B895]/20 text-xs font-bold text-[#1D3A30]">
-                    <span>سجل المبالغ المضافة ({customProfits.length})</span>
-                    <span className="font-mono text-emerald-700">+{addedFunds.toFixed(2)} د.ب</span>
+                    <span>سجل الإيرادات والمبالغ المستردة ({customProfits.length})</span>
+                    <span className="font-mono text-emerald-700">+{reimbursedInflows.toFixed(2)} د.ب</span>
                   </div>
 
                   {customProfits.length === 0 ? (
                     <div className="py-5 text-center text-xs text-[#1D3A30]/50">
-                      لم تتم إضافة مبالغ جديدة بعد.
+                      لم يتم تسجيل مبالغ مستردة بعد.
                     </div>
                   ) : (
                     <div className="space-y-1.5 max-h-48 overflow-y-auto no-scrollbar">
@@ -563,7 +576,14 @@ export default function Dashboard() {
                           className="flex items-center justify-between p-2 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-xs"
                         >
                           <div>
-                            <span className="font-bold text-[#1D3A30] block">{fund.description}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-[#1D3A30]">{fund.description}</span>
+                              {fund.category && (
+                                <span className="text-[9px] bg-[#E8D5A8]/50 text-[#1D3A30] px-1.5 py-0.5 rounded-md font-medium">
+                                  {fund.category}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-[#1D3A30]/60 font-mono">{fund.date || 'اليوم'}</span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -592,7 +612,7 @@ export default function Dashboard() {
       </AnimatePresence>
 
       {/* ========================================================================= */}
-      {/* 4. MODAL FOR ADDING FUNDS (إضافة مبلغ جديد - بدون تسميتها أرباح)              */}
+      {/* 4. MODAL FOR ADDING INFLOWS / REIMBURSEMENTS                               */}
       {/* ========================================================================= */}
       <AnimatePresence>
         {showAddFundsModal && (
@@ -611,7 +631,10 @@ export default function Dashboard() {
               className="relative bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl z-10 text-right space-y-3.5 border border-[#C7B895]/30"
             >
               <div className="flex items-center justify-between border-b border-[#C7B895]/20 pb-2.5">
-                <h3 className="text-xs font-black text-[#1D3A30]">إضافة مبلغ جديد</h3>
+                <div>
+                  <h3 className="text-xs font-black text-[#1D3A30]">تسجيل إيراد / مبلغ مسترد لحساب المشروع</h3>
+                  <p className="text-[10px] text-[#1D3A30]/65">تعويض مشتريات شخصية أو إيرادات متفرقة لحساب المشروع</p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowAddFundsModal(false)}
@@ -624,7 +647,7 @@ export default function Dashboard() {
               <form onSubmit={handleAddFundsSubmit} className="space-y-3 text-xs">
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    المبلغ بالدينار (د.ب) *
+                    المبلغ المودع بالدينار (د.ب) *
                   </label>
                   <input
                     type="number"
@@ -641,12 +664,28 @@ export default function Dashboard() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    البيان / مصدر المبلغ *
+                    نوع الإيراد / سبب الإيداع *
+                  </label>
+                  <select
+                    value={fundCategory}
+                    onChange={(e) => setFundCategory(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 bg-[#FAF7F0] text-xs font-bold text-[#1D3A30] focus:ring-1 focus:ring-[#1D3A30] outline-none"
+                  >
+                    <option value="استرداد مشتريات شخصية">استرداد مشتريات شخصية (مثل أغراض شخصية من تيمو)</option>
+                    <option value="تعويض مصروف للمشروع">تعويض مصروف للمشروع</option>
+                    <option value="إيداع مؤقت لحساب المشروع">إيداع مؤقت لحساب المشروع</option>
+                    <option value="إيرادات أخرى">إيرادات متفرقة أخرى</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
+                    البيان / الوصف التفصيلي *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="بيان المبلغ..."
+                    placeholder="مثال: استرداد أغراض شخصية من طلبية تيمو..."
                     value={fundDesc}
                     onChange={(e) => setFundDesc(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs text-[#1D3A30]"
@@ -655,7 +694,7 @@ export default function Dashboard() {
 
                 <div>
                   <label className="block text-[11px] font-bold text-[#1D3A30] mb-1">
-                    التاريخ
+                    تاريخ التحويل
                   </label>
                   <input
                     type="date"
@@ -670,7 +709,7 @@ export default function Dashboard() {
                     type="submit"
                     className="py-2.5 bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] font-bold rounded-xl transition text-xs shadow-xs cursor-pointer active:scale-95"
                   >
-                    حفظ المبلغ
+                    حفظ في حساب المشروع
                   </button>
                   <button
                     type="button"
