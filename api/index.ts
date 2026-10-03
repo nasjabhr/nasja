@@ -781,6 +781,21 @@ export default async function handler(req: any, res: any) {
     switch (route) {
       case 'health':
         return send(res, 200, { ok: true, version: API_VERSION, secureMode: HAS_SERVICE_ROLE, time: NOW() });
+      case 'cleanup_bpay': {
+        const db = serviceClient || authClient;
+        await db.from('expenses').delete().in('id', ['EXP_BPAY']);
+        await db.from('custom_profits').delete().in('id', ['prof_cashback_main']);
+        const raw = await readRaw(db);
+        return send(res, 200, {
+          ok: true,
+          expensesCount: raw.data.expenses.length,
+          totalExpenses: raw.data.expenses.reduce((s: number, e: any) => s + e.amount, 0),
+          profitsCount: raw.data.customProfits.length,
+          totalProfits: raw.data.customProfits.reduce((s: number, p: any) => s + p.amount, 0),
+          capital: raw.data.capital,
+          netBalance: raw.data.capital + raw.data.customProfits.reduce((s: number, p: any) => s + p.amount, 0) - raw.data.expenses.reduce((s: number, e: any) => s + e.amount, 0)
+        });
+      }
       case 'store':
         return await handlePublicStore(req, res);
       case 'admin':
