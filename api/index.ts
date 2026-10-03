@@ -45,7 +45,7 @@ const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc,0843
   .map((s) => s.trim())
   .filter(Boolean);
 
-const API_VERSION = '4.7.1';
+const API_VERSION = '4.7.2';
 const SETTINGS_ROW_ID = '__store_settings__';
 const SYSTEM_CATEGORY = '__system__';
 const CRITICAL_FABRIC_THRESHOLD = 3.0;
@@ -781,95 +781,6 @@ export default async function handler(req: any, res: any) {
     switch (route) {
       case 'health':
         return send(res, 200, { ok: true, version: API_VERSION, secureMode: HAS_SERVICE_ROLE, time: NOW() });
-      case 'reconcile': {
-        const db = serviceClient || authClient;
-        const targetUserId = ADMIN_UIDS[0] || '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
-
-        const expensesToUpsert = [
-          {
-            id: 'EXP_ROUNDUP',
-            user_id: targetUserId,
-            description: 'تقريب المعاملة البنكية (Roundup)',
-            amount: 0.069,
-            category: 'عام ومصاريف أخرى',
-            payment_method: 'بطاقة ائتمانية',
-            paid_to: 'stc pay',
-            notes: 'Roundup Transaction',
-            created_at_ms: 1790974629000
-          },
-          {
-            id: 'EXP_BPAY',
-            user_id: targetUserId,
-            description: 'رسوم تسجيل بطاقة بنفت بي',
-            amount: 0.100,
-            category: 'عام ومصاريف أخرى',
-            payment_method: 'بطاقة ائتمانية',
-            paid_to: 'بنفت بي',
-            notes: 'Bpay-Regstrn',
-            created_at_ms: 1789459928000
-          },
-          {
-            id: 'J1DS28',
-            user_id: targetUserId,
-            description: 'سلف احمد عبد الامير',
-            amount: 10.000,
-            category: 'عام ومصاريف أخرى',
-            payment_method: 'بنفت بي',
-            paid_to: 'احمد عبد الامير',
-            notes: 'سلفة كاملة بذمة أحمد (9 د.ب نقدية مسحوبة من الحساب + 1 د.ب تسوية تيمو)',
-            created_at_ms: 1790767920000
-          }
-        ];
-        await db.from('expenses').upsert(expensesToUpsert, { onConflict: 'id' });
-
-        await db.from('custom_profits').delete().in('id', ['prof_1791034356696_32jkd']);
-
-        const profitsToUpsert = [
-          {
-            id: 'prof_cashback_main',
-            user_id: targetUserId,
-            amount: 0.100,
-            description: 'كاش باك محول للحساب الجاري (15 سبتمبر)',
-            category: 'كاش باك',
-            date: '2026-09-15',
-            created_at_ms: 1789459928000
-          },
-          {
-            id: 'prof_fabric_offset',
-            user_id: targetUserId,
-            amount: 6.500,
-            description: 'مقاصة أقمشة هدايا المصورين (من أغراض أحمد في تيمو)',
-            category: 'تعويض مصروف المشروع',
-            date: '2026-09-29',
-            created_at_ms: 1790693113000
-          },
-          {
-            id: 'prof_ahmed_rollover',
-            user_id: targetUserId,
-            amount: 1.000,
-            description: 'تسوية متبقي أغراض أحمد في تيمو إلى سلف أحمد',
-            category: 'تعويض مصروف المشروع',
-            date: '2026-09-30',
-            created_at_ms: 1790767920000
-          }
-        ];
-        await db.from('custom_profits').upsert(profitsToUpsert, { onConflict: 'id' });
-
-        const raw = await readRaw(db);
-        await writeSettingsRow(db, targetUserId, raw.data.settings, { ...raw.system, capital: 420 });
-
-        const updated = await readRaw(db);
-        return send(res, 200, {
-          ok: true,
-          message: 'Ledger reconciled successfully',
-          expensesCount: updated.data.expenses.length,
-          totalExpenses: updated.data.expenses.reduce((s: number, e: any) => s + e.amount, 0),
-          profitsCount: updated.data.customProfits.length,
-          totalProfits: updated.data.customProfits.reduce((s: number, p: any) => s + p.amount, 0),
-          capital: updated.data.capital,
-          netBalance: updated.data.capital + updated.data.customProfits.reduce((s: number, p: any) => s + p.amount, 0) - updated.data.expenses.reduce((s: number, e: any) => s + e.amount, 0)
-        });
-      }
       case 'store':
         return await handlePublicStore(req, res);
       case 'admin':
