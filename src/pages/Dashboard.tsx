@@ -101,8 +101,9 @@ export default function Dashboard() {
   // Capital & Inflows calculations (المبالغ المستردة لا تزيد رأس المال الأساسي بل تُحسب كإيرادات لحساب المشروع)
   const baseCapital = capital || 0;
   const reimbursedInflows = customProfits.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+  const totalInflows = baseCapital + sales;
   const netOperatingFlow = sales - expenses;
-  const availableLiquidity = baseCapital + sales - expenses;
+  const availableLiquidity = totalInflows - expenses;
 
   const handleDeliverOrder = (orderId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -226,7 +227,7 @@ export default function Dashboard() {
             </div>
             <div className="text-left font-mono">
               <span className="text-sm sm:text-base lg:text-lg font-black text-emerald-700">
-                +{sales.toFixed(3)}
+                +{totalInflows.toFixed(3)}
               </span>
               <span className="text-[10px] sm:text-xs font-bold text-[#A99872] mr-1">د.ب</span>
             </div>
@@ -507,7 +508,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="pt-1 flex items-baseline gap-1 font-mono">
                       <span className="text-2xl sm:text-3xl font-black text-[#1D3A30]">
-                        {baseCapital.toFixed(2)}
+                        {baseCapital.toFixed(3)}
                       </span>
                       <span className="text-xs font-bold text-[#A99872]">د.ب</span>
                     </div>
@@ -522,7 +523,7 @@ export default function Dashboard() {
                     <span className="text-[9px] text-[#1D3A30]/60 block mb-1">مبالغ مودعة كتعويضات/شخصي</span>
                     <div className="font-mono">
                       <span className="text-lg sm:text-xl font-black text-emerald-700 block">
-                        +{reimbursedInflows.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+                        +{reimbursedInflows.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
                       </span>
                     </div>
                   </div>
@@ -533,7 +534,7 @@ export default function Dashboard() {
                     <span className="text-[9px] text-[#1D3A30]/60 block mb-1">الرصيد الفعلي المتوفر</span>
                     <div className="font-mono">
                       <span className="text-lg sm:text-xl font-black text-[#1D3A30] block">
-                        {availableLiquidity.toFixed(2)} <span className="text-[10px] font-normal">د.ب</span>
+                        {availableLiquidity.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
                       </span>
                     </div>
                   </div>
@@ -553,7 +554,7 @@ export default function Dashboard() {
                 <div className="bg-white rounded-2xl p-3.5 border border-[#C7B895]/30 shadow-2xs space-y-2">
                   <div className="flex items-center justify-between pb-1.5 border-b border-[#C7B895]/20 text-xs font-bold text-[#1D3A30]">
                     <span>سجل الإيرادات والمبالغ المستردة ({customProfits.length})</span>
-                    <span className="font-mono text-emerald-700">+{reimbursedInflows.toFixed(2)} د.ب</span>
+                    <span className="font-mono text-emerald-700">+{reimbursedInflows.toFixed(3)} د.ب</span>
                   </div>
 
                   {customProfits.length === 0 ? (
@@ -580,7 +581,7 @@ export default function Dashboard() {
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-bold font-mono text-emerald-800">
-                              +{Number(fund.amount).toFixed(2)} د.ب
+                              +{Number(fund.amount).toFixed(3)} د.ب
                             </span>
                             <button
                               type="button"

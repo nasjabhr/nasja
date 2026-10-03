@@ -1,7 +1,7 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '4.7.0';
-export const APP_BUILD_DATE = '2026.10.03-pure-database-driven';
+export const APP_VERSION = '4.7.1';
+export const APP_BUILD_DATE = '2026.10.03-reconciled-ledger';
 
 // Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {

@@ -14,6 +14,7 @@ export default function Budget() {
   const [orders, setOrders] = useState<any[]>([]);
   const [expensesList, setExpensesList] = useState<any[]>([]);
   const [customProfitsList, setCustomProfitsList] = useState<CustomProfit[]>([]);
+  const [capital, setCapital] = useState(0);
 
   // Single Add Inflow Modal State
   const [showAddProfitModal, setShowAddProfitModal] = useState(false);
@@ -23,10 +24,11 @@ export default function Budget() {
   const [profitDate, setProfitDate] = useState(new Date().toISOString().split('T')[0]);
 
   const loadData = () => {
-    const { orders: ords, expenses: expList, customProfits: profs } = getLocalData();
+    const { orders: ords, expenses: expList, customProfits: profs, capital: cap } = getLocalData();
     setOrders(ords || []);
     setExpensesList(expList || []);
     setCustomProfitsList(profs || []);
+    setCapital(Number(cap) || 0);
   };
 
   useEffect(() => {
@@ -56,6 +58,8 @@ export default function Budget() {
 
   // Total revenues = sales + reimbursed inflows
   const totalRevenues = ordersSales + manualInflows;
+  const baseCapital = capital || 0;
+  const totalInflows = baseCapital + totalRevenues;
 
   // 3. Expenses calculation: all expenses recorded
   const totalExpenses = expensesList.reduce(
@@ -63,8 +67,8 @@ export default function Budget() {
     0
   );
 
-  // 4. Net Operating Flow
-  const netFlow = totalRevenues - totalExpenses;
+  // 4. Net Operating Flow (Cash Balance)
+  const netFlow = totalInflows - totalExpenses;
 
   const handleAddProfitSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,11 +142,11 @@ export default function Budget() {
               إجمالي المبالغ الداخلة (الإيرادات والإيداعات)
             </span>
             <span className="text-base sm:text-lg font-black font-mono text-emerald-300 block">
-              +{totalRevenues.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
+              +{totalInflows.toFixed(3)} <span className="text-[10px] font-normal">د.ب</span>
             </span>
-            {manualInflows > 0 && (
+            {(baseCapital > 0 || manualInflows > 0) && (
               <span className="text-[10px] text-white/70 block mt-0.5">
-                مبيعات: {ordersSales.toFixed(3)} | إيداعات ومستردات: +{manualInflows.toFixed(3)}
+                رأس مال: {baseCapital.toFixed(3)} | مستردات: +{manualInflows.toFixed(3)}
               </span>
             )}
           </div>

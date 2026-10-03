@@ -45,7 +45,7 @@ const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc,0843
   .map((s) => s.trim())
   .filter(Boolean);
 
-const API_VERSION = '4.7.0';
+const API_VERSION = '4.7.1';
 const SETTINGS_ROW_ID = '__store_settings__';
 const SYSTEM_CATEGORY = '__system__';
 const CRITICAL_FABRIC_THRESHOLD = 3.0;
