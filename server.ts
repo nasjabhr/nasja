@@ -3,37 +3,16 @@ import http from "http";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-import {
-  getUserData,
-  syncUserData,
-  saveOrder,
-  deleteOrder,
-  saveExpense,
-  deleteExpense,
-  saveInventoryItem,
-  deleteInventoryItem,
-  resetStoreData,
-  getStoreSettings,
-  saveStoreSettings,
-} from "./server/db";
-import { inspectSupabaseDatabase, getSupabaseFabrics } from "./server/supabase";
+import apiHandler from "./api/index";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
   const httpServer = http.createServer(app);
 
-  // Anti-stale zero-cache middleware for ALL requests and responses
+  // Zero-cache middleware. No CORS headers: the API is same-origin only.
   app.use((req, res, next) => {
-    res.setHeader('X-App-Version', '3.0.0');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
-
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
-    }
-
+    res.setHeader('X-App-Version', '4.0.0');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -41,201 +20,13 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json({ limit: "25mb" }));
+  app.use(express.json({ limit: "5mb" }));
 
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: Date.now() });
-  });
-
-  // Diagnostic endpoint to inspect and understand Supabase tables completely
-  app.get("/api/supabase-inspect", async (req, res) => {
-    try {
-      const report = await inspectSupabaseDatabase();
-      res.json({ success: true, report });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Public Catalog Endpoint for customer storefront (/store) - strictly isolated, ZERO financial/order data
-  app.get("/api/public-catalog", async (req, res) => {
-    try {
-      // 1. Try pulling directly from Supabase inventory table
-      let rawFabrics: any[] = [];
-      try {
-        rawFabrics = await getSupabaseFabrics();
-      } catch (e) {
-        console.warn("Supabase public fabrics fetch note:", e);
-      }
-
-      // Filter out packaging items
-      const isPackaging = (item: any) => {
-        if (!item) return false;
-        if (item.category === 'تغليف') return true;
-        const cat = String(item.category || '').toLowerCase();
-        const name = String(item.name || '').toLowerCase();
-        if (cat.includes('تغليف') || cat.includes('packaging') || cat.includes('علب') || cat.includes('كرتون')) return true;
-        if (/تغليف|بوكس|علبة|علب|كرتون|أكياس|كيس|شريط|شرائط/i.test(name)) return true;
-        return false;
-      };
-
-      let fabrics = (rawFabrics || []).filter((item: any) => !isPackaging(item));
-
-      // 2. Also retrieve server database inventory
-      const data = getUserData();
-      const serverFabrics = (data.inventory || []).filter((item: any) => !isPackaging(item));
-
-      // 3. Fallback or merge
-      if (fabrics.length === 0) {
-        fabrics = serverFabrics;
-      } else if (serverFabrics.length > 0) {
-        const map = new Map<string, any>();
-        fabrics.forEach(f => map.set(String(f.id), f));
-        serverFabrics.forEach(f => {
-          map.set(String(f.id), { ...(map.get(String(f.id)) || {}), ...f });
-        });
-        fabrics = Array.from(map.values());
-      }
-
-      // 4. Map strictly real fabrics
-      const catalog = fabrics.map((item: any) => {
-        const qty = Number(item.quantity || 0);
-        return {
-          id: String(item.id),
-          name: item.name || '',
-          price: Number(item.price || 0),
-          quantity: qty,
-          isAvailable: qty >= 3.0,
-          isLowStock: qty <= 3.0 && qty > 0,
-          isOutOfStock: qty <= 0,
-          category: item.category || 'أقمشة رجالية فاخرة',
-          season: item.season || item.season_type || '',
-          description: item.description || '',
-          imageUrl: item.imageUrl || item.image_url || item.image || '',
-        };
-      });
-
-      const storeSettings = getStoreSettings();
-
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      res.json({ success: true, catalog, settings: storeSettings, timestamp: Date.now() });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Store Settings (configurable from admin dashboard)
-  app.get("/api/store-settings", (req, res) => {
-    try {
-      const settings = getStoreSettings();
-      res.json({ success: true, settings });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/store-settings", (req, res) => {
-    try {
-      const updated = saveStoreSettings(req.body || {});
-      res.json({ success: true, settings: updated });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Database API Endpoints (UID and credentials strictly guarded on server)
-  app.get("/api/store-data", (req, res) => {
-    try {
-      const data = getUserData();
-      res.json({ success: true, ...data });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/sync", (req, res) => {
-    try {
-      const { orders, expenses, inventory, customProfits, settings } = req.body || {};
-      const result = syncUserData({ orders, expenses, inventory, customProfits, settings });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/orders", (req, res) => {
-    try {
-      const order = req.body;
-      if (!order || !order.id) {
-        return res.status(400).json({ success: false, message: "Order id is required" });
-      }
-      const saved = saveOrder(order);
-      res.json({ success: true, order: saved });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.delete("/api/orders/:id", (req, res) => {
-    try {
-      deleteOrder(req.params.id);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/expenses", (req, res) => {
-    try {
-      const expense = req.body;
-      if (!expense || !expense.id) {
-        return res.status(400).json({ success: false, message: "Expense id is required" });
-      }
-      const saved = saveExpense(expense);
-      res.json({ success: true, expense: saved });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.delete("/api/expenses/:id", (req, res) => {
-    try {
-      deleteExpense(req.params.id);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/inventory", (req, res) => {
-    try {
-      const item = req.body;
-      if (!item || !item.id) {
-        return res.status(400).json({ success: false, message: "Inventory item id is required" });
-      }
-      const saved = saveInventoryItem(item);
-      res.json({ success: true, item: saved });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.delete("/api/inventory/:id", (req, res) => {
-    try {
-      deleteInventoryItem(req.params.id);
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.post("/api/reset-data", (req, res) => {
-    try {
-      resetStoreData();
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
+  // Hardened backend API — the exact same handler that runs as the Vercel Serverless Function in production.
+  // (The old unauthenticated file-database routes were removed: they allowed anyone to read/overwrite all data.)
+  app.all("/api/:route(health|store|admin)", (req, res) => {
+    (req.query as any).route = req.params.route;
+    return apiHandler(req, res);
   });
 
   // Helper to safely inspect and fetch Instagram account information

@@ -48,66 +48,14 @@ export default function StoreSettingsPage() {
     }
 
     async function loadSettings() {
-      let candidate: StoreSettings | null = null;
+      // Single source of truth: the database, through the hardened backend
+      await syncWithServer(true);
+      const candidate = getLocalStoreSettings();
 
-      // A. Direct Supabase Cloud load (works seamlessly on Vercel and all frontends)
-      if (supabase) {
-        try {
-          const { data: invRow } = await supabase
-            .from('inventory')
-            .select('image_url')
-            .eq('id', '__store_settings__')
-            .maybeSingle();
-
-          if (invRow?.image_url) {
-            try {
-              const parsed = JSON.parse(invRow.image_url);
-              if (parsed && typeof parsed === 'object') {
-                candidate = {
-                  ...DEFAULT_STORE_SETTINGS,
-                  ...parsed,
-                  seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0 
-                    ? parsed.seasonsOrder 
-                    : ['winter', 'summer', 'spring']
-                };
-              }
-            } catch {}
-          }
-        } catch {}
-      }
-
-      // B. Direct server API load (when running with Express backend)
-      try {
-        const res = await fetch(`/api/store-settings?t=${Date.now()}`);
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const data = await res.json();
-            if (data?.settings) {
-              const serverTime = data.settings.updatedAt || 0;
-              const candTime = candidate?.updatedAt || 0;
-              if (!candidate || serverTime >= candTime) {
-                candidate = {
-                  ...DEFAULT_STORE_SETTINGS,
-                  ...(candidate || {}),
-                  ...data.settings,
-                  seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0 
-                    ? data.settings.seasonsOrder 
-                    : ['winter', 'summer', 'spring']
-                };
-              }
-            }
-          }
-        }
-      } catch {}
-
-      // Apply cloud candidate if user is NOT actively typing
+      // Apply database values if user is NOT actively typing
       if (candidate && !isDirtyRef.current) {
         setSettings(candidate);
         settingsRef.current = candidate;
-        try {
-          localStorage.setItem('nasjah_store_settings', JSON.stringify(candidate));
-        } catch {}
       }
     }
 

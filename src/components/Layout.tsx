@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { syncWithServer, getCloudData, EVENT_DATA_UPDATED } from '../lib/dataService';
 import NasjahLogo from './NasjahLogo';
 import { PWAInstallButton } from './PWAInstallButton';
+import SyncStatusBanner from './SyncStatusBanner';
 
 export default function Layout() {
   const [pendingOrdersCount, setPendingOrdersCount] = useState(0);
@@ -169,6 +170,7 @@ export default function Layout() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-full overflow-hidden bg-[#FAF7F0] text-[#1D3A30] font-sans flex flex-col select-none" dir="rtl">
+      <SyncStatusBanner />
       
       {/* ========================================================================= */}
       {/* 1. DESKTOP & TABLET TOP HEADER BAR (md: and up)                           */}

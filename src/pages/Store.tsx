@@ -22,8 +22,7 @@ import {
 import NasjahLogo from '../components/NasjahLogo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import { CRITICAL_FABRIC_THRESHOLD, StoreSettings, DEFAULT_STORE_SETTINGS, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
-import { supabase } from '../lib/supabase';
-import { getLocalStoreSettings, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
+import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
 export interface PublicFabric {
   id: string;
@@ -175,215 +174,34 @@ export default function Store() {
         }
       }
 
-      let fabricsFound = false;
-
-      // 1. Direct Supabase Cloud load (primary source on Vercel & static deployments)
-      let resolvedSettings: StoreSettings | null = null;
-      if (supabase) {
-        try {
-          // First check __store_settings__ in inventory table (guaranteed public read)
-          const { data: invSettingsRow } = await supabase
-            .from('inventory')
-            .select('image_url')
-            .eq('id', '__store_settings__')
-            .maybeSingle();
-
-          if (invSettingsRow?.image_url) {
-            try {
-              const parsed = JSON.parse(invSettingsRow.image_url);
-              if (parsed && typeof parsed === 'object') {
-                resolvedSettings = {
-                  ...DEFAULT_STORE_SETTINGS,
-                  ...parsed,
-                  seasonsOrder: parsed.seasonsOrder && parsed.seasonsOrder.length > 0
-                    ? parsed.seasonsOrder
-                    : ['winter', 'summer', 'spring']
-                };
-              }
-            } catch {}
-          }
-
-          // Also check dedicated store_settings table if it exists
-          const { data: sbSettings } = await supabase
-            .from('store_settings')
-            .select('settings')
-            .order('updated_at', { ascending: false })
-            .limit(1);
-
-          if (sbSettings && sbSettings.length > 0 && sbSettings[0]?.settings) {
-            resolvedSettings = {
-              ...DEFAULT_STORE_SETTINGS,
-              ...(resolvedSettings || {}),
-              ...sbSettings[0].settings
-            };
-          }
-        } catch {}
-      }
-
-      // 1b. Fetch store settings from server API (when running with Express backend)
-      try {
-        const sRes = await fetch(`/api/store-settings?t=${Date.now()}`, {
-          cache: 'no-store',
-          headers: { 'Accept': 'application/json' }
-        });
-        if (sRes.ok) {
-          const contentType = sRes.headers.get('content-type') || '';
-          if (contentType.includes('application/json')) {
-            const sData = await sRes.json();
-            if (sData?.settings) {
-              const serverTime = sData.settings.updatedAt || 0;
-              const currentCloudTime = resolvedSettings?.updatedAt || 0;
-              if (!resolvedSettings || serverTime >= currentCloudTime) {
-                resolvedSettings = {
-                  ...DEFAULT_STORE_SETTINGS,
-                  ...(resolvedSettings || {}),
-                  ...sData.settings,
-                  seasonsOrder: sData.settings.seasonsOrder && sData.settings.seasonsOrder.length > 0
-                    ? sData.settings.seasonsOrder
-                    : ['winter', 'summer', 'spring']
-                };
-              }
-            }
-          }
-        }
-      } catch {}
-
-      // 1c. Reconcile settings: Supabase Database has absolute priority over stale local cache
-      const localCached = getLocalStoreSettings();
-      const finalSettings: StoreSettings = resolvedSettings || localCached || DEFAULT_STORE_SETTINGS;
-
+      // Single hardened source: /api/store (sanitized public projection served by the backend)
+      const { settings: finalSettings, catalog: items } = await fetchPublicStore();
       setStoreSettings(finalSettings);
-      try {
-        localStorage.setItem('nasjah_store_settings', JSON.stringify(finalSettings));
-      } catch {}
 
       if (finalSettings.defaultSeason && ['all', 'winter', 'summer', 'spring'].includes(finalSettings.defaultSeason)) {
         setSelectedSeason(finalSettings.defaultSeason as SeasonFilter);
       }
 
-      // 2. Fetch directly from Supabase Cloud (works seamlessly on Vercel and all frontends)
-      if (supabase) {
-        try {
-          const { data: sbData, error: sbError } = await supabase
-            .from('inventory')
-            .select('*');
-
-          if (!sbError && sbData && sbData.length > 0) {
-            const mapped: PublicFabric[] = sbData
-              .filter((item: any) => !isPackagingItem(item) && item.id !== '__store_settings__' && item.category !== '__system__')
-              .map((item: any) => {
-                let parsedMeta: any = {};
-                if (item.barcode && typeof item.barcode === 'string' && item.barcode.startsWith('{')) {
-                  try { parsedMeta = JSON.parse(item.barcode); } catch {}
-                }
-                const sourcingType = parsedMeta.sourcingType || item.sourcingType || 'stock';
-                const isCatalogItem = sourcingType === 'catalog';
-                const qty = Number(item.quantity || 0);
-
-                return {
-                  id: String(item.id),
-                  name: item.name || '',
-                  price: Number(item.price || 0),
-                  quantity: qty,
-                  isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
-                  isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
-                  isOutOfStock: !isCatalogItem && qty <= 0,
-                  category: item.category || 'أقمشة رجالية',
-                  imageUrl: item.image_url || item.imageUrl || item.image || '',
-                  season: parsedMeta.season || item.season || item.season_type || '',
-                  description: parsedMeta.description || item.description || ''
-                };
-              });
-            if (mapped.length > 0) {
-              setCatalog(mapped);
-              fabricsFound = true;
-              // If currently selected season has 0 fabrics, automatically switch to 'all' so fabrics appear immediately
-              setSelectedSeason((currentSeason) => {
-                if (currentSeason === 'all') return 'all';
-                const match = mapped.some(f => getFabricSeason(f) === currentSeason);
-                return match ? currentSeason : 'all';
-              });
-            }
-          }
-        } catch (e) {
-          console.warn('Direct Supabase fetch note:', e);
-        }
-      }
-
-      // 3. Query /api/public-catalog (for full-stack dev / local server / cloud run)
-      try {
-        const res = await fetch(`/api/public-catalog?t=${Date.now()}`, {
-          cache: 'no-store',
-          headers: { 'Accept': 'application/json' }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (!fabricsFound && data.catalog && Array.isArray(data.catalog) && data.catalog.length > 0) {
-            const fabricsOnly = data.catalog.filter((f: any) => !isPackagingItem(f));
-            if (fabricsOnly.length > 0) {
-              setCatalog(fabricsOnly);
-              fabricsFound = true;
-              setSelectedSeason((currentSeason) => {
-                if (currentSeason === 'all') return 'all';
-                const match = fabricsOnly.some(f => getFabricSeason(f) === currentSeason);
-                return match ? currentSeason : 'all';
-              });
-            }
-          }
-          if (data.settings) {
-            setStoreSettings(prev => ({
-              ...DEFAULT_STORE_SETTINGS,
-              ...prev,
-              ...data.settings,
-              seasonsOrder: data.settings.seasonsOrder && data.settings.seasonsOrder.length > 0
-                ? data.settings.seasonsOrder
-                : ['winter', 'summer', 'spring']
-            }));
-          }
-        }
-      } catch {}
-
-      // 4. Fallback to /api/store-data if still not populated
-      if (!fabricsFound) {
-        try {
-          const fallbackRes = await fetch(`/api/store-data?t=${Date.now()}`, {
-            cache: 'no-store',
-            headers: { 'Accept': 'application/json' }
-          });
-          if (fallbackRes.ok) {
-            const data = await fallbackRes.json();
-            if (data.inventory && Array.isArray(data.inventory) && data.inventory.length > 0) {
-              const mapped: PublicFabric[] = data.inventory
-                .filter((item: any) => !isPackagingItem(item))
-                .map((item: any) => {
-                  const isCatalogItem = item.sourcingType === 'catalog';
-                  const qty = Number(item.quantity || 0);
-                  return {
-                    id: String(item.id),
-                    name: item.name || '',
-                    price: Number(item.price || 0),
-                    quantity: qty,
-                    isAvailable: isCatalogItem || qty >= CRITICAL_FABRIC_THRESHOLD,
-                    isLowStock: !isCatalogItem && qty <= CRITICAL_FABRIC_THRESHOLD && qty > 0,
-                    isOutOfStock: !isCatalogItem && qty <= 0,
-                    category: item.category || 'أقمشة رجالية',
-                    imageUrl: item.imageUrl || item.image_url || item.image || '',
-                    season: item.season || '',
-                    description: item.description || ''
-                  };
-                });
-              if (mapped.length > 0) {
-                setCatalog(mapped);
-                setSelectedSeason((currentSeason) => {
-                  if (currentSeason === 'all') return 'all';
-                  const match = mapped.some(f => getFabricSeason(f) === currentSeason);
-                  return match ? currentSeason : 'all';
-                });
-              }
-            }
-          }
-        } catch {}
-      }
+      const mapped: PublicFabric[] = items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        price: Number(item.price) || 0,
+        quantity: 0, // exact stock levels are never exposed publicly
+        isAvailable: item.isAvailable,
+        isLowStock: item.isLowStock,
+        isOutOfStock: item.isOutOfStock,
+        category: item.category,
+        imageUrl: item.imageUrl,
+        season: item.season || '',
+        description: item.description || ''
+      }));
+      setCatalog(mapped);
+      // If currently selected season has 0 fabrics, automatically switch to 'all' so fabrics appear immediately
+      setSelectedSeason((currentSeason) => {
+        if (currentSeason === 'all') return 'all';
+        const match = mapped.some(f => getFabricSeason(f) === currentSeason);
+        return match ? currentSeason : 'all';
+      });
     } catch (err) {
       console.error('Failed to load store data:', err);
     } finally {
