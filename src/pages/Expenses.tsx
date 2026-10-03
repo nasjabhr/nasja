@@ -6,7 +6,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Expense, PaymentMethod } from '../types';
 import { formatDateTime, toDatetimeLocal, fromDatetimeLocal } from '../lib/dateUtils';
-import { persistExpenses, deleteExpensePermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED, SEED_EXPENSES } from '../lib/dataService';
+import { persistExpenses, deleteExpensePermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED } from '../lib/dataService';
 
 const EXPENSE_CATEGORIES = [
   'أقمشة ومستلزمات المخزون',
@@ -17,12 +17,9 @@ const EXPENSE_CATEGORIES = [
   'عام ومصاريف أخرى'
 ];
 
-const CANONICAL_FOUNDER_EXPENSES: Expense[] = SEED_EXPENSES;
-
 export default function Expenses() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isAddingMissing, setIsAddingMissing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -181,10 +178,6 @@ export default function Expenses() {
 
   const totalAmount = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-  const missingExpenses = CANONICAL_FOUNDER_EXPENSES.filter(
-    (c) => !expenses.some((e) => e.id === c.id || e.description?.trim() === c.description.trim())
-  );
-
   return (
     <div className="space-y-3.5 pb-6">
       {/* Top Header & Add Button */}
@@ -220,43 +213,6 @@ export default function Expenses() {
           </button>
         </div>
       </div>
-
-      {/* Missing Canonical Expenses Alert & One-Click DB Save */}
-      {missingExpenses.length > 0 && (
-        <div className="bg-amber-50/90 border border-amber-300 p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-950">
-              <span className="font-bold">
-                يوجد {missingExpenses.length} مصروفات تأسيسية غير مسجلة في قاعدة بيانات Supabase (إجمالي {missingExpenses.reduce((s, x) => s + x.amount, 0).toFixed(2)} د.ب):
-              </span>
-              <p className="text-[11px] text-amber-800/80 mt-0.5">
-                رسوم الرحلات، بترول الأكورد، وطلبية تيمو غير موجودة في جدول Supabase لديك. اضغط الزر لحفظها رسمياً في قاعدة البيانات.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={async () => {
-              setIsAddingMissing(true);
-              try {
-                const next = [...expenses, ...missingExpenses];
-                await persistExpenses(next);
-                setExpenses(next);
-              } catch (err) {
-                console.error(err);
-              } finally {
-                setIsAddingMissing(false);
-              }
-            }}
-            disabled={isAddingMissing}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] text-xs font-bold transition flex items-center justify-center gap-2 shrink-0 active:scale-95 cursor-pointer shadow-xs disabled:opacity-60"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{isAddingMissing ? 'جارِ الحفظ في قاعدة البيانات...' : 'حفظ الـ 5 مصروفات في Supabase الآن'}</span>
-          </button>
-        </div>
-      )}
 
       {/* Mobile Search & Filter Chips */}
       <div className="space-y-2">

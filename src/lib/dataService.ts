@@ -82,41 +82,15 @@ function readLegacyPayload(): Record<string, unknown> | null {
   }
 }
 
-// Exact Project Expenses as specified by the Founders (without round-trip transfers)
-export const SEED_EXPENSES: Expense[] = [
-  { id: 'EXP_FABRICS_ALAWADH', description: 'شراء أقمشة (عبد العزيز العوض - 215 د.ك)', amount: 272.331, category: 'أقمشة ومستلزمات المخزون', paymentMethod: 'بطاقة ائتمانية', paidTo: 'عبد العزيز أسعد العوض', notes: 'KWD 215.000 Online Card', createdAt: 1790974623000 },
-  { id: 'EXP_TRIP_ALI', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.200, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671057000 },
-  { id: 'EXP_TRIP_ABUHUSSAIN', description: 'رسوم الرحلة الأولى (أبو حسين)', amount: 22.780, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671480000 },
-  { id: 'EXP_PETROL_ACCORD', description: 'بترول الأكورد', amount: 15.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة أبو حسين قبل السفر', createdAt: 1789500495000 },
-  { id: 'EXP_TEMU', description: 'طلبية تيمو', amount: 11.640, category: 'تغليف ومطبوعات', paymentMethod: 'بطاقة ائتمانية', paidTo: 'تيمو', notes: 'اول دفعة لنا', createdAt: 1789480740000 },
-  { id: 'EXP_LOAN_AHMED', description: 'سلف أحمد عبد الأمير', amount: 10.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'أحمد', notes: '', createdAt: 1790793959000 },
-  { id: 'EXP_LIGHTING', description: 'إضاءة هدايا الزبائن', amount: 6.500, category: 'تسويق وإعلانات', paymentMethod: 'بنفت بي', paidTo: 'تسويق الإعلانات', notes: '', createdAt: 1790693113000 },
-  { id: 'EXP_TOOLS', description: 'مقص ومسطرة متر', amount: 6.500, category: 'صيانة وأدوات', paymentMethod: 'بنفت بي', paidTo: 'محل في الديه', notes: '', createdAt: 1789710000000 },
-  { id: 'EXP_TRIP_AHMED', description: 'رسوم الرحلة (أحمد عبد الأمير)', amount: 3.800, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671636000 },
-  { id: 'EXP_ROUNDUP', description: 'تقريب المعاملة البنكية (Roundup)', amount: 0.069, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1790974629000 },
-];
-
-// Project Credits / Inflows (without round-trip transfers)
-export const SEED_PROFITS: CustomProfit[] = [
-  { id: 'INF_DEP_4300_2', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974075000 },
-  { id: 'INF_DEP_4300_1', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974056000 },
-  { id: 'INF_DEP_1001', description: 'إيداع تأسيسي فوري بلس (حساب 1001)', amount: 110.000, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484658000 },
-  { id: 'INF_DEP_0692', description: 'إيداع تأسيسي فوري بلس (حساب 0692)', amount: 90.980, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484642000 },
-  { id: 'INF_RECV_0692', description: 'تعويض مصروف طلبية تيمو (أغراض شخصية)', amount: 7.380, category: 'تعويض مصروف المشروع', date: '2026-09-28', createdAt: 1790623616000 },
-  { id: 'INF_CASHBACK_FABRICS', description: 'كاش باك شراء الأقمشة (Prepaid Card Cashback)', amount: 1.360, category: 'كاش باك', date: '2026-10-02', createdAt: 1790974687000 },
-  { id: 'INF_RECV_0000', description: 'تحويل فوري بلس لحساب المشروع (حساب 0000)', amount: 0.850, category: 'أخرى', date: '2026-09-29', createdAt: 1790717170000 },
-  { id: 'INF_CASHBACK_ROUNDUP', description: 'رصيد كاش باك وتقريب المعاملة (Cashback+ / Roundup)', amount: 0.094, category: 'كاش باك', date: '2026-10-02', createdAt: 1790974629000 },
-];
-
 // ---------------------------------------------------------------------------
-// In-memory state (lives only for the lifetime of the page)
+// In-memory state (lives only for the lifetime of the page, populated strictly from DB)
 // ---------------------------------------------------------------------------
 const emptyStore = (): StoreData => ({
   orders: [],
-  expenses: [...SEED_EXPENSES],
+  expenses: [],
   inventory: [],
   capital: 0,
-  customProfits: [...SEED_PROFITS],
+  customProfits: [],
   settings: { ...DEFAULT_STORE_SETTINGS },
 });
 
@@ -156,13 +130,9 @@ function reportError(context: string, err: unknown) {
 
 function applyServerState(payload: any) {
   const d = payload?.data || {};
-  let exp = Array.isArray(d.expenses) ? d.expenses : [];
-  if (exp.length === 0) {
-    exp = [...SEED_EXPENSES];
-  }
   store = {
     orders: Array.isArray(d.orders) ? d.orders : [],
-    expenses: exp,
+    expenses: Array.isArray(d.expenses) ? d.expenses : [],
     inventory: Array.isArray(d.inventory) ? d.inventory : [],
     capital: Number(d.capital) || 0,
     customProfits: Array.isArray(d.customProfits) ? d.customProfits : [],
@@ -315,7 +285,6 @@ export function syncWithServer(_forceFresh = false): Promise<StoreData> {
                   notes: e.notes || '',
                   createdAt: Number(e.created_at_ms) || (e.created_at ? new Date(e.created_at).getTime() : 0),
                 }));
-                if (directExp.length === 0) directExp = [...SEED_EXPENSES];
 
                 store = {
                   orders: (oRes.data || []).map((o: any) => ({
@@ -382,7 +351,6 @@ export function syncWithServer(_forceFresh = false): Promise<StoreData> {
       }
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 401)) reportError('تعذر تحميل البيانات من قاعدة البيانات', err);
-      if (store.expenses.length === 0) store.expenses = [...SEED_EXPENSES];
       ready = true;
       notifyDataChanged();
     } finally {
