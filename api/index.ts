@@ -108,33 +108,30 @@ const DEFAULT_STORE_SETTINGS: StoreSettings = {
   updatedAt: 0,
 };
 
-// 12 Exact Debits from stc pay Statement (Total 400.350 BHD)
+// Exact Project Expenses as specified by the Founders (without round-trip transfers)
 const SEED_EXPENSES: Expense[] = [
   { id: 'EXP_FABRICS_ALAWADH', description: 'شراء أقمشة (عبد العزيز العوض - 215 د.ك)', amount: 272.331, category: 'أقمشة ومستلزمات المخزون', paymentMethod: 'بطاقة ائتمانية', paidTo: 'عبد العزيز أسعد العوض', notes: 'KWD 215.000 Online Card', createdAt: 1790974623000 },
-  { id: 'EXP_ROUNDUP', description: 'تقريب المعاملة البنكية (Roundup)', amount: 0.069, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1790974629000 },
-  { id: 'EXP_SENT_1001_9', description: 'تحويل فوري بلس (حساب 1001)', amount: 9.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 1001', notes: '', createdAt: 1790793959000 },
-  { id: 'EXP_SENT_0692_65', description: 'تحويل فوري بلس (حساب 0692)', amount: 6.500, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 0692', notes: '', createdAt: 1790693113000 },
-  { id: 'EXP_SENT_2217_23', description: 'تحويل فوري بلس (حساب 2217)', amount: 2.300, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 2217', notes: '', createdAt: 1790684439000 },
-  { id: 'EXP_SENT_1001_115', description: 'تحويل فوري بلس (حساب 1001)', amount: 1.150, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 1001', notes: '', createdAt: 1790672363000 },
-  { id: 'EXP_SENT_0692_1612', description: 'تحويل فوري بلس (حساب 0692)', amount: 16.120, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'حساب 0692', notes: '', createdAt: 1789826757000 },
-  { id: 'EXP_TRIP_AHMED', description: 'رسوم الرحلة (أحمد عبد الأمير)', amount: 3.800, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671636000 },
-  { id: 'EXP_TRIP_ABUHUSSAIN', description: 'رسوم الرحلة الأولى (أبو حسين)', amount: 22.780, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671480000 },
   { id: 'EXP_TRIP_ALI', description: 'رسوم الرحلة (علي عبد الرسول)', amount: 51.200, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671057000 },
+  { id: 'EXP_TRIP_ABUHUSSAIN', description: 'رسوم الرحلة الأولى (أبو حسين)', amount: 22.780, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671480000 },
   { id: 'EXP_PETROL_ACCORD', description: 'بترول الأكورد', amount: 15.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'محطة الرملي', notes: 'فل سيارة أبو حسين قبل السفر', createdAt: 1789500495000 },
-  { id: 'EXP_CARD_REG', description: 'رسوم تسجيل البطاقة الرقمية (Bpay-Regstrn)', amount: 0.100, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1789459928000 },
+  { id: 'EXP_TEMU', description: 'طلبية تيمو', amount: 11.640, category: 'تغليف ومطبوعات', paymentMethod: 'بطاقة ائتمانية', paidTo: 'تيمو', notes: 'اول دفعة لنا', createdAt: 1789480740000 },
+  { id: 'EXP_LOAN_AHMED', description: 'سلف أحمد عبد الأمير', amount: 10.000, category: 'عام ومصاريف أخرى', paymentMethod: 'بنفت بي', paidTo: 'أحمد', notes: '', createdAt: 1790793959000 },
+  { id: 'EXP_LIGHTING', description: 'إضاءة هدايا الزبائن', amount: 6.500, category: 'تسويق وإعلانات', paymentMethod: 'بنفت بي', paidTo: 'تسويق الإعلانات', notes: '', createdAt: 1790693113000 },
+  { id: 'EXP_TOOLS', description: 'مقص ومسطرة متر', amount: 6.500, category: 'صيانة وأدوات', paymentMethod: 'بنفت بي', paidTo: 'محل في الديه', notes: '', createdAt: 1789710000000 },
+  { id: 'EXP_TRIP_AHMED', description: 'رسوم الرحلة (أحمد عبد الأمير)', amount: 3.800, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'رسوم الرحلة', notes: '', createdAt: 1789671636000 },
+  { id: 'EXP_ROUNDUP', description: 'تقريب المعاملة البنكية (Roundup)', amount: 0.069, category: 'عام ومصاريف أخرى', paymentMethod: 'بطاقة ائتمانية', paidTo: 'stc pay', notes: '', createdAt: 1790974629000 },
 ];
 
-// 9 Exact Credits / Inflows from stc pay Statement (Total 412.760 BHD)
+// Project Credits / Inflows (without round-trip transfers)
 const SEED_PROFITS: CustomProfit[] = [
   { id: 'INF_DEP_4300_2', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974075000 },
   { id: 'INF_DEP_4300_1', description: 'إيداع لتغطية طلبية الأقمشة (حساب 4300)', amount: 100.000, category: 'إيداع رأس مال', date: '2026-10-02', createdAt: 1790974056000 },
-  { id: 'INF_RECV_0000', description: 'تحويل فوري بلس لحساب المشروع (حساب 0000)', amount: 0.850, category: 'إيراد / تحويل لحساب المشروع', date: '2026-09-29', createdAt: 1790717170000 },
-  { id: 'INF_RECV_1001', description: 'استرجاع فوري بلس (حساب 1001)', amount: 1.150, category: 'تعويض مصروف المشروع', date: '2026-09-29', createdAt: 1790701437000 },
-  { id: 'INF_RECV_2217', description: 'استرجاع فوري بلس (حساب 2217)', amount: 2.300, category: 'تعويض مصروف المشروع', date: '2026-09-29', createdAt: 1790700835000 },
-  { id: 'INF_RECV_0692', description: 'تحويل فوري بلس لحساب المشروع (حساب 0692)', amount: 7.380, category: 'إيراد / تحويل لحساب المشروع', date: '2026-09-28', createdAt: 1790623616000 },
   { id: 'INF_DEP_1001', description: 'إيداع تأسيسي فوري بلس (حساب 1001)', amount: 110.000, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484658000 },
   { id: 'INF_DEP_0692', description: 'إيداع تأسيسي فوري بلس (حساب 0692)', amount: 90.980, category: 'إيداع رأس مال', date: '2026-09-15', createdAt: 1789484642000 },
-  { id: 'INF_CASHBACK_1', description: 'كاش باك محول للحساب (Transfer from Cashback+)', amount: 0.100, category: 'كاش باك', date: '2026-09-15', createdAt: 1789459928000 },
+  { id: 'INF_RECV_0692', description: 'تعويض مصروف طلبية تيمو (أغراض شخصية)', amount: 7.380, category: 'تعويض مصروف المشروع', date: '2026-09-28', createdAt: 1790623616000 },
+  { id: 'INF_CASHBACK_FABRICS', description: 'كاش باك شراء الأقمشة (Prepaid Card Cashback)', amount: 1.360, category: 'كاش باك', date: '2026-10-02', createdAt: 1790974687000 },
+  { id: 'INF_RECV_0000', description: 'تحويل فوري بلس لحساب المشروع (حساب 0000)', amount: 0.850, category: 'أخرى', date: '2026-09-29', createdAt: 1790717170000 },
+  { id: 'INF_CASHBACK_ROUNDUP', description: 'رصيد كاش باك وتقريب المعاملة (Cashback+ / Roundup)', amount: 0.094, category: 'كاش باك', date: '2026-10-02', createdAt: 1790974629000 },
 ];
 
 // ============================================================================
