@@ -219,7 +219,7 @@ export default function Store() {
     const countFor = (key: string) => {
       if (key === 'all') return catalog.length;
       return catalog.filter((f) => {
-        const s = (f.season || '').toLowerCase().trim();
+        const s = (f.season || 'ربيعي').toLowerCase().trim();
         const isAll = s === 'كافة الفصول' || s === 'all' || s === 'كافة';
         if (key === 'winter') return isAll || s.includes('شتو') || s === 'winter';
         if (key === 'summer') return isAll || s.includes('صيف') || s === 'summer';
@@ -253,7 +253,7 @@ export default function Store() {
 
       // Season filter
       if (selectedSeason !== 'all') {
-        const s = (fabric.season || '').toLowerCase().trim();
+        const s = (fabric.season || 'ربيعي').toLowerCase().trim();
         const isAll = s === 'كافة الفصول' || s === 'all' || s === 'كافة';
         const matches =
           (selectedSeason === 'winter' && (s.includes('شتو') || s === 'winter')) ||

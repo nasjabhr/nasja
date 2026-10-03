@@ -764,7 +764,7 @@ async function handlePublicStore(req: any, res: any) {
         isOutOfStock: !isCatalog && qty <= 0,
         category: f.category || 'أقمشة رجالية',
         imageUrl: f.imageUrl || '',
-        season: f.season || '',
+        season: f.season || 'ربيعي',
         description: f.description || '',
       };
     });
