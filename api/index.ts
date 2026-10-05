@@ -787,7 +787,8 @@ async function handlePublicOrder(req: any, res: any) {
 
   const db = serviceClient || authClient;
   const def = ENTITY.orders;
-  const row = def.toRow(order, 'public_guest');
+  const founderUid = ADMIN_UIDS[0] || '53cc7a5b-bc93-40ff-908e-d582d85e0efc';
+  const row = def.toRow(order, founderUid);
 
   const { error } = await db.from(def.table).upsert([row], { onConflict: 'id' });
   if (error) {
