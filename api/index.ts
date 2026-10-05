@@ -45,7 +45,7 @@ const ADMIN_UIDS = (ENV.ADMIN_UIDS || '53cc7a5b-bc93-40ff-908e-d582d85e0efc,0843
   .map((s) => s.trim())
   .filter(Boolean);
 
-const API_VERSION = '4.7.5';
+const API_VERSION = '4.7.6';
 const SETTINGS_ROW_ID = '__store_settings__';
 const SYSTEM_CATEGORY = '__system__';
 const CRITICAL_FABRIC_THRESHOLD = 3.0;
@@ -771,6 +771,33 @@ async function handlePublicStore(req: any, res: any) {
   return send(res, 200, { ok: true, settings, catalog, serverTime: NOW() });
 }
 
+async function handlePublicOrder(req: any, res: any) {
+  if (req.method !== 'POST') throw new HttpError(405, 'method_not_allowed', 'طريقة غير مسموحة');
+  rateLimit(`order:${clientIp(req)}`, 60, 60_000);
+  const body = parseBody(req);
+  const rawOrder = body.order || body;
+  const order = sanitizeOrder(rawOrder);
+  if (!order || !order.details) {
+    throw new HttpError(400, 'bad_order', 'بيانات الطلب غير مكتملة');
+  }
+
+  // Ensure initial status is "قيد التجهيز" and "قيد الدفع"
+  order.status = 'قيد التجهيز';
+  order.paymentStatus = 'قيد الدفع';
+
+  const db = serviceClient || authClient;
+  const def = ENTITY.orders;
+  const row = def.toRow(order, 'public_guest');
+
+  const { error } = await db.from(def.table).upsert([row], { onConflict: 'id' });
+  if (error) {
+    console.error('[nasjah-api] Failed to insert public order:', error);
+    throw new HttpError(502, 'db_write_failed', 'تعذر تسجيل الطلب في النظام', error.message);
+  }
+
+  return send(res, 200, { ok: true, orderId: order.id, serverTime: NOW() });
+}
+
 // ============================================================================
 // Entry point
 // ============================================================================
@@ -783,6 +810,8 @@ export default async function handler(req: any, res: any) {
         return send(res, 200, { ok: true, version: API_VERSION, secureMode: HAS_SERVICE_ROLE, time: NOW() });
       case 'store':
         return await handlePublicStore(req, res);
+      case 'order':
+        return await handlePublicOrder(req, res);
       case 'admin':
         return await handleAdmin(req, res);
       default:

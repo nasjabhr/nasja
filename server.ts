@@ -24,7 +24,7 @@ async function startServer() {
 
   // Hardened backend API — the exact same handler that runs as the Vercel Serverless Function in production.
   // (The old unauthenticated file-database routes were removed: they allowed anyone to read/overwrite all data.)
-  app.all("/api/:route(health|store|admin)", (req, res) => {
+  app.all("/api/:route(health|store|admin|order)", (req, res) => {
     (req.query as any).route = req.params.route;
     return apiHandler(req, res);
   });

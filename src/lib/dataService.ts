@@ -548,3 +548,25 @@ export async function fetchPublicStore(): Promise<{ settings: StoreSettings; cat
   notifySettings();
   return { settings, catalog: Array.isArray(json.catalog) ? json.catalog : [] };
 }
+
+/** Submits a customer order from the public store directly to the ERP database */
+export async function submitPublicOrder(order: Partial<Order>): Promise<{ ok: boolean; orderId?: string }> {
+  try {
+    const res = await fetch('/api/order', {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ order })
+    });
+    if (!res.ok) {
+      console.warn('submitPublicOrder failed HTTP', res.status);
+      return { ok: false };
+    }
+    const json = await res.json().catch(() => ({}));
+    return { ok: Boolean(json?.ok), orderId: json?.orderId };
+  } catch (err) {
+    console.error('submitPublicOrder network error:', err);
+    return { ok: false };
+  }
+}
+

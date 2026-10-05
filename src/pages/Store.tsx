@@ -18,14 +18,20 @@ import {
   Leaf,
   ChevronLeft,
   ChevronRight,
-  ZoomIn
+  ZoomIn,
+  ShoppingBag,
+  ShoppingCart,
+  Plus,
+  Minus,
+  Trash2,
+  Check
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import SplashScreen from '../components/SplashScreen';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import LocationPickerMap, { LocationCoordinates } from '../components/LocationPickerMap';
-import { StoreSettings, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
-import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
+import { StoreSettings, BahrainGovernorateName, BAHRAIN_GOVERNORATES, Order } from '../types';
+import { getLocalStoreSettings, fetchPublicStore, submitPublicOrder, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
 export interface PublicFabric {
   id: string;
@@ -67,10 +73,38 @@ export interface StoreProduct {
   isAllOutOfStock: boolean;
 }
 
+export interface CartItem {
+  id: string;
+  fabricId: string;
+  fullName: string;
+  itemNumber?: number;
+  pricePerMeter: number;
+  meters: number;
+  totalPrice: number;
+  imageUrl?: string;
+}
+
 export function formatMeters(meters: number): string {
   const rounded = Math.round(Number(meters || 0) * 2) / 2;
   return rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1);
 }
+
+// Generates and persists a unique royal customer code without requiring account registration
+export const getCustomerUniqueId = (): string => {
+  if (typeof window === 'undefined') return 'CUST-000000';
+  try {
+    const KEY = 'nasjah_guest_customer_id';
+    let id = localStorage.getItem(KEY);
+    if (!id || !id.startsWith('CUST-')) {
+      const rand = Math.floor(100000 + Math.random() * 900000);
+      id = `CUST-${rand}`;
+      localStorage.setItem(KEY, id);
+    }
+    return id;
+  } catch {
+    return 'CUST-000000';
+  }
+};
 
 export default function Store() {
   const [catalog, setCatalog] = useState<PublicFabric[]>([]);
@@ -81,6 +115,53 @@ export default function Store() {
 
   // 3-dots Menu State
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Customer Unique ID (guest, no account required)
+  const [customerId] = useState<string>(() => getCustomerUniqueId());
+
+  // Customer Cart state & drawer
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(`nasjah_cart_${getCustomerUniqueId()}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [customerName, setCustomerName] = useState(() => {
+    try {
+      return localStorage.getItem('nasjah_guest_name') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [customerPhone, setCustomerPhone] = useState(() => {
+    try {
+      return localStorage.getItem('nasjah_guest_phone') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [cartToast, setCartToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`nasjah_cart_${customerId}`, JSON.stringify(cart));
+    } catch {}
+  }, [cart, customerId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nasjah_guest_name', customerName);
+      localStorage.setItem('nasjah_guest_phone', customerPhone);
+    } catch {}
+  }, [customerName, customerPhone]);
+
+  const showCartToast = (msg: string) => {
+    setCartToast(msg);
+    setTimeout(() => setCartToast(null), 3000);
+  };
 
   // Selected Product & Selected Numbered Option
   const [activeProduct, setActiveProduct] = useState<StoreProduct | null>(null);
@@ -481,6 +562,184 @@ ${deliveryFeeLine}
     return `https://wa.me/${whatsAppPhone}?text=${encodeURIComponent(msg)}`;
   };
 
+  // Cart calculations
+  const cartSubtotal = useMemo(() => {
+    return cart.reduce((acc, item) => acc + item.totalPrice, 0);
+  }, [cart]);
+
+  const cartTotalMeters = useMemo(() => {
+    return cart.reduce((acc, item) => acc + item.meters, 0);
+  }, [cart]);
+
+  const cartGrandTotal = useMemo(() => {
+    return Math.round((cartSubtotal + deliveryFee) * 1000) / 1000;
+  }, [cartSubtotal, deliveryFee]);
+
+  const addToCart = (product: StoreProduct, option: StoreFabricOption, meters: number) => {
+    const unitPrice = option.price;
+    const roundedMeters = Math.max(1, Math.round(meters * 2) / 2);
+    const totalPrice = Math.round(unitPrice * roundedMeters * 1000) / 1000;
+    
+    setCart(prev => {
+      const existingIdx = prev.findIndex(item => item.fabricId === option.id);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        const newMeters = Math.round((updated[existingIdx].meters + roundedMeters) * 2) / 2;
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          meters: newMeters,
+          totalPrice: Math.round(unitPrice * newMeters * 1000) / 1000
+        };
+        return updated;
+      } else {
+        const newItem: CartItem = {
+          id: `${option.id}_${Date.now()}`,
+          fabricId: option.id,
+          fullName: option.fullName,
+          itemNumber: option.itemNumber,
+          pricePerMeter: unitPrice,
+          meters: roundedMeters,
+          totalPrice,
+          imageUrl: option.imageUrl || product.imageUrl
+        };
+        return [...prev, newItem];
+      }
+    });
+
+    showCartToast(`تمت إضافة "${option.fullName}" (${roundedMeters} م) إلى السلة 🛍️`);
+  };
+
+  const removeFromCart = (itemId: string) => {
+    setCart(prev => prev.filter(item => item.id !== itemId));
+  };
+
+  const updateCartItemMeters = (itemId: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === itemId) {
+        const newM = Math.max(1, Math.round((item.meters + delta) * 2) / 2);
+        return {
+          ...item,
+          meters: newM,
+          totalPrice: Math.round(item.pricePerMeter * newM * 1000) / 1000
+        };
+      }
+      return item;
+    }));
+  };
+
+  const clearCart = () => {
+    setCart([]);
+  };
+
+  // Immediate database registration & WhatsApp link for Direct Single Order
+  const handleDirectOrder = () => {
+    if (!activeProduct || !selectedOption) return;
+    const orderId = `ORD-${Date.now().toString(36).toUpperCase()}`;
+    const formattedMetersStr = Number(customMeters).toString();
+    const unitPriceStr = Number(selectedOption.price).toFixed(3);
+    const fabricTotalStr = (selectedOption.price * customMeters).toFixed(3);
+    const grandTotalNum = Math.round((fabricSubtotal + deliveryFee) * 1000) / 1000;
+
+    const mapsLink = (deliveryType === 'توصيل' && customerLocation)
+      ? `https://maps.google.com/?q=${customerLocation.lat.toFixed(6)},${customerLocation.lng.toFixed(6)}`
+      : '';
+
+    const orderDetails = `1) ${selectedOption.fullName} (${formattedMetersStr} متر × ${unitPriceStr} د.ب = ${fabricTotalStr} د.ب)`;
+
+    const orderPayload: Partial<Order> = {
+      id: orderId,
+      customerName: customerName.trim() || `عميل نَسْجَة (#${customerId})`,
+      phone: customerPhone.trim() || '',
+      details: orderDetails,
+      price: grandTotalNum,
+      total: grandTotalNum,
+      status: 'قيد التجهيز',
+      paymentStatus: 'قيد الدفع',
+      paymentMethod: 'بنفت بي',
+      deliveryType: deliveryType,
+      deliveryFee: deliveryFee,
+      fabricId: selectedOption.id,
+      fabricMeters: customMeters,
+      fabricName: selectedOption.fullName,
+      notes: `[رقم العميل: ${customerId}]${deliveryNotes.trim() ? `\n• تفاصيل: ${deliveryNotes.trim()}` : ''}${mapsLink ? `\n• لوكيشن: ${mapsLink}` : ''}`,
+      createdAt: Date.now()
+    };
+
+    // 1. Asynchronously submit order to ERP database
+    submitPublicOrder(orderPayload);
+
+    // 2. Open WhatsApp
+    const waUrl = getWhatsAppLink(activeProduct, selectedOption, customMeters);
+    window.open(waUrl, '_blank');
+  };
+
+  // Immediate database registration & WhatsApp link for Cart Checkout
+  const handleCartCheckout = () => {
+    if (cart.length === 0) return;
+    const orderId = `ORD-${Date.now().toString(36).toUpperCase()}`;
+
+    const mapsLink = (deliveryType === 'توصيل' && customerLocation)
+      ? `https://maps.google.com/?q=${customerLocation.lat.toFixed(6)},${customerLocation.lng.toFixed(6)}`
+      : '';
+
+    const itemsSummary = cart.map((item, idx) => 
+      `${idx + 1}) ${item.fullName} (${item.meters} متر × ${item.pricePerMeter.toFixed(3)} د.ب = ${item.totalPrice.toFixed(3)} د.ب)`
+    ).join('\n');
+
+    const orderPayload: Partial<Order> = {
+      id: orderId,
+      customerName: customerName.trim() || `عميل نَسْجَة (#${customerId})`,
+      phone: customerPhone.trim() || '',
+      details: itemsSummary,
+      price: cartGrandTotal,
+      total: cartGrandTotal,
+      status: 'قيد التجهيز',
+      paymentStatus: 'قيد الدفع',
+      paymentMethod: 'بنفت بي',
+      deliveryType: deliveryType,
+      deliveryFee: deliveryFee,
+      notes: `[رقم العميل: ${customerId}]\n• إجمالي الأمتار: ${cartTotalMeters} متر${deliveryNotes.trim() ? `\n• تفاصيل: ${deliveryNotes.trim()}` : ''}${mapsLink ? `\n• لوكيشن: ${mapsLink}` : ''}`,
+      createdAt: Date.now()
+    };
+
+    // 1. Asynchronously submit order to ERP database
+    submitPublicOrder(orderPayload);
+
+    // 2. Build WhatsApp message for cart
+    let deliveryMethodStr = 'استلام شخصي من المقر (0.000 د.ب)';
+    let deliveryFeeLine = '• رسوم التوصيل: 0.000 د.ب (استلام شخصي من المقر)';
+
+    if (deliveryType === 'توصيل') {
+      deliveryMethodStr = `خدمة التوصيل بمملكة البحرين\n• رابط موقع التوصيل (Google Maps):\n  ${mapsLink || 'سيتم تزويدكم باللوكيشن في المحادثة'}`;
+      if (deliveryNotes.trim()) {
+        deliveryMethodStr += `\n• تفاصيل إضافية للعنوان: ${deliveryNotes.trim()}`;
+      }
+      deliveryFeeLine = `• رسوم التوصيل: +${deliveryFee.toFixed(3)} د.ب`;
+    }
+
+    const waMsg = `السلام عليكم ورحمة الله وبركاته، دار نَسْجَة للأقمشة الفاخرة
+أود تأكيد طلب سلة الأقمشة التالية:
+• رقم العميل: #${customerId}
+${customerName.trim() ? `• الاسم: ${customerName.trim()}\n` : ''}${customerPhone.trim() ? `• الهاتف: ${customerPhone.trim()}\n` : ''}
+قائمة الأقمشة المطلوبة:
+${itemsSummary}
+
+• إجمالي عدد الأمتار: ${cartTotalMeters} متر
+• إجمالي قيمة الأقمشة: ${cartSubtotal.toFixed(3)} د.ب
+• طريقة الاستلام: ${deliveryMethodStr}
+${deliveryFeeLine}
+• الإجمالي النهائي: ${cartGrandTotal.toFixed(3)} د.ب`;
+
+    const waUrl = `https://wa.me/${whatsAppPhone}?text=${encodeURIComponent(waMsg)}`;
+    
+    // Clear cart & close drawer
+    clearCart();
+    setIsCartOpen(false);
+    showCartToast('تم تسجيل طلبك بنجاح وجارٍ فتح محادثة واتساب للتأكيد 💬');
+
+    window.open(waUrl, '_blank');
+  };
+
   if (loading) {
     return (
       <SplashScreen
@@ -505,6 +764,19 @@ ${deliveryFeeLine}
           >
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>تم تحديث بيانات المتجر والمخزون بنجاح</span>
+          </motion.div>
+        )}
+
+        {/* Toast Notification for Cart additions */}
+        {cartToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-12 left-1/2 -translate-x-1/2 z-50 bg-[#1D3A30] text-[#E8D5A8] border border-[#C7B895]/60 px-5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs font-bold pointer-events-none"
+          >
+            <ShoppingBag className="w-4 h-4 text-[#E8D5A8]" />
+            <span>{cartToast}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -554,6 +826,22 @@ ${deliveryFeeLine}
               }`}
             >
               <RotateCw className={`w-4 h-4 text-[#1D3A30] ${isRefreshingStore ? 'animate-spin text-[#A99872]' : ''}`} />
+            </button>
+
+            {/* Shopping Cart Header Button */}
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              aria-label="سلة المشتريات"
+              title="عرض سلة المشتريات"
+              className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all border active:scale-95 cursor-pointer bg-white hover:bg-[#FAF7F0] text-[#1D3A30] border-[#C7B895]/50 shadow-2xs"
+            >
+              <ShoppingBag className="w-4 h-4 text-[#1D3A30]" />
+              {cart.length > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-[#1D3A30] text-[#E8D5A8] border border-[#C7B895] rounded-full text-[10px] font-black font-mono flex items-center justify-center px-1 shadow-xs animate-scale">
+                  {cart.length}
+                </span>
+              )}
             </button>
 
             {/* Direct WhatsApp Call to Action */}
@@ -1184,82 +1472,60 @@ ${deliveryFeeLine}
                   </div>
                 </div>
 
-                {/* The Horizontal Range Slider with mathematically aligned ticks */}
-                <div className="space-y-2 pt-1" dir="ltr">
-                  <div className="relative w-full">
-                    <input
-                      type="range"
-                      min={1.0}
-                      max={25.0}
-                      step={0.5}
-                      value={customMeters}
-                      onChange={(e) => setCustomMeters(parseFloat(e.target.value))}
-                      className="w-full accent-[#1D3A30] cursor-pointer h-2.5 bg-[#E8D5A8]/50 rounded-lg relative z-10"
-                    />
-                  </div>
+                  {/* The Horizontal Range Slider with mathematically aligned ticks */}
+                  <div className="space-y-2 pt-1" dir="ltr">
+                    <div className="relative w-full">
+                      <input
+                        type="range"
+                        min={1.0}
+                        max={25.0}
+                        step={0.5}
+                        value={customMeters}
+                        onChange={(e) => setCustomMeters(parseFloat(e.target.value))}
+                        className="w-full accent-[#1D3A30] cursor-pointer h-2.5 bg-[#E8D5A8]/50 rounded-lg relative z-10"
+                      />
+                    </div>
 
-                  {/* Geometrically aligned tick marks and labels */}
-                  <div className="relative w-full h-7 select-none">
-                    {[
-                      { val: 1.0, label: '1 م' },
-                      { val: 3.5, label: '3.5 م (ثوب كامل)' },
-                      { val: 10.0, label: '10 م' },
-                      { val: 22.5, label: '22.5 م (طاقة)' },
-                    ].map((tick) => {
-                      const pct = ((tick.val - 1.0) / (25.0 - 1.0)) * 100;
-                      const isSelected = Math.abs(customMeters - tick.val) < 0.25;
-                      return (
-                        <div
-                          key={tick.val}
-                          onClick={() => setCustomMeters(tick.val)}
-                          className="absolute -translate-x-1/2 flex flex-col items-center cursor-pointer transition-all group"
-                          style={{ left: `${pct}%` }}
-                        >
+                    {/* Geometrically aligned tick marks and labels */}
+                    <div className="relative w-full h-6 select-none">
+                      {[
+                        { val: 1.0, label: '1 م' },
+                        { val: 3.5, label: '3.5 م' },
+                        { val: 10.0, label: '10 م' },
+                        { val: 22.5, label: '22.5 م' },
+                      ].map((tick) => {
+                        const pct = ((tick.val - 1.0) / (25.0 - 1.0)) * 100;
+                        const isSelected = Math.abs(customMeters - tick.val) < 0.25;
+                        return (
                           <div
-                            className={`w-0.5 rounded-full mb-0.5 transition-all ${
-                              isSelected ? 'h-2.5 bg-[#1D3A30]' : 'h-1.5 bg-[#C7B895]/80 group-hover:bg-[#1D3A30]'
-                            }`}
-                          />
-                          <span
-                            className={`text-[9px] font-mono whitespace-nowrap transition-all ${
-                              isSelected
-                                ? 'text-[#1D3A30] font-black scale-105'
-                                : 'text-[#1D3A30]/65 font-bold group-hover:text-[#1D3A30]'
-                            }`}
+                            key={tick.val}
+                            onClick={() => setCustomMeters(tick.val)}
+                            className="absolute flex flex-col items-center cursor-pointer transition-all group"
+                            style={{
+                              left: `${pct}%`,
+                              transform: tick.val === 1.0 ? 'translateX(0)' : tick.val === 22.5 ? 'translateX(-100%)' : 'translateX(-50%)'
+                            }}
                           >
-                            {tick.label}
-                          </span>
-                        </div>
-                      );
-                    })}
+                            <div
+                              className={`w-0.5 rounded-full mb-0.5 transition-all ${
+                                isSelected ? 'h-2 bg-[#1D3A30]' : 'h-1 bg-[#C7B895]/80 group-hover:bg-[#1D3A30]'
+                              }`}
+                            />
+                            <span
+                              className={`text-[10px] font-mono whitespace-nowrap transition-all ${
+                                isSelected
+                                  ? 'text-[#1D3A30] font-black scale-105'
+                                  : 'text-[#1D3A30]/65 font-bold group-hover:text-[#1D3A30]'
+                              }`}
+                            >
+                              {tick.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-
-                {/* Quick Presets */}
-                <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-[#C7B895]/20">
-                  <span className="text-[10px] text-[#1D3A30]/60 font-bold">خيارات سريعة:</span>
-                  {[
-                    { label: '1 م', val: 1.0 },
-                    { label: '2.5 م', val: 2.5 },
-                    { label: '3.5 م (موصى به)', val: 3.5 },
-                    { label: '4.0 م (وافي)', val: 4.0 },
-                    { label: '22.5 م (طاقة)', val: 22.5 },
-                  ].map((preset) => (
-                    <button
-                      key={preset.val}
-                      type="button"
-                      onClick={() => setCustomMeters(preset.val)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                        customMeters === preset.val
-                          ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30]'
-                          : 'bg-white text-[#1D3A30] border-[#C7B895]/30 hover:bg-[#FAF7F0]'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* 4. RECEIVING MECHANISM (استلام من المقر / خدمة التوصيل بالخريطة) */}
               <div className="p-3 sm:p-3.5 rounded-2xl bg-white border border-[#C7B895]/40 space-y-2.5 shadow-2xs">
@@ -1377,17 +1643,32 @@ ${deliveryFeeLine}
                 </div>
               </div>
 
-              {/* Final WhatsApp Order Button */}
+              {/* Product Modal Action Buttons: Add to Cart + Direct Order via WhatsApp */}
               <div className="mt-4 space-y-2">
-                <a
-                  href={getWhatsAppLink()}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black transition flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer"
-                >
-                  <WhatsAppIcon className="w-4 h-4 text-white" />
-                  <span>طلب القماش الآن عبر واتساب ({rawNumber})</span>
-                </a>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeProduct && selectedOption) {
+                        addToCart(activeProduct, selectedOption, customMeters);
+                        handleCloseProductModal();
+                      }
+                    }}
+                    className="py-3 px-3 rounded-2xl bg-[#1D3A30] hover:bg-[#25493D] text-[#E8D5A8] border border-[#C7B895]/50 text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm active:scale-98 cursor-pointer"
+                  >
+                    <ShoppingBag className="w-4 h-4 text-[#E8D5A8]" />
+                    <span>إضافة إلى السلة 🛍️</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDirectOrder}
+                    className="py-3 px-3 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm active:scale-98 cursor-pointer"
+                  >
+                    <WhatsAppIcon className="w-4 h-4 text-white" />
+                    <span>طلب فوري 💬</span>
+                  </button>
+                </div>
 
                 <button
                   type="button"
@@ -1398,6 +1679,323 @@ ${deliveryFeeLine}
                 </button>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 5.5 FLOATING CART STICKY BAR (When cart has items) */}
+      <AnimatePresence>
+        {cart.length > 0 && !isCartOpen && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-6 sm:w-96 z-40"
+          >
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(true)}
+              className="w-full bg-[#1D3A30] text-[#E8D5A8] border border-[#C7B895]/60 p-3 rounded-2xl shadow-2xl flex items-center justify-between gap-3 backdrop-blur-md cursor-pointer active:scale-98 transition"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#E8D5A8]/20 flex items-center justify-center relative">
+                  <ShoppingBag className="w-5 h-5 text-[#E8D5A8]" />
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-emerald-500 text-white rounded-full text-[10px] font-mono font-black flex items-center justify-center px-1">
+                    {cart.length}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-black text-white block">سلة المشتريات ({cart.length} أقمشة)</span>
+                  <span className="text-[10px] text-[#C7B895]">اضغط لعرض السلة وتأكيد الطلب</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono text-sm font-black text-[#E8D5A8] bg-white/10 px-3 py-1.5 rounded-xl border border-[#C7B895]/30">
+                <span>{cartSubtotal.toFixed(3)}</span>
+                <span className="text-[10px] font-sans">د.ب</span>
+              </div>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 5.6 LUXURY SHOPPING CART MODAL */}
+      <AnimatePresence>
+        {isCartOpen && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.6 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsCartOpen(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-xs"
+            />
+
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 280 }}
+              className="relative w-full max-w-lg bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl z-10 max-h-[92dvh] flex flex-col overflow-hidden border border-[#C7B895]/30"
+            >
+              {/* Cart Modal Header */}
+              <div className="p-4 border-b border-[#C7B895]/30 flex items-center justify-between bg-[#1D3A30] text-[#FAF7F0]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-[#FAF7F0]/10 flex items-center justify-center text-[#E8D5A8] border border-[#C7B895]/30">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white">
+                      سلة المشتريات ({cart.length} أقمشة)
+                    </h3>
+                    <div className="flex items-center gap-1.5 text-[10px] text-[#E8D5A8]">
+                      <span>رقم العميل:</span>
+                      <span className="font-mono font-bold bg-white/10 px-1.5 py-0.5 rounded border border-[#C7B895]/30">
+                        #{customerId}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCartOpen(false)}
+                  className="p-1.5 rounded-lg bg-white/10 text-[#E8D5A8] hover:text-white cursor-pointer"
+                  title="إغلاق السلة"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Cart Modal Body */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+                {cart.length === 0 ? (
+                  <div className="text-center py-12 space-y-3">
+                    <div className="w-16 h-16 rounded-full bg-[#FAF7F0] border border-[#C7B895]/40 flex items-center justify-center mx-auto text-[#A99872]">
+                      <ShoppingBag className="w-8 h-8 opacity-50" />
+                    </div>
+                    <h4 className="text-sm font-bold text-[#1D3A30]">السلة فارغة حالياً</h4>
+                    <p className="text-xs text-[#1D3A30]/60 max-w-xs mx-auto">
+                      تصفح تشكيلة الأقمشة الفاخرة واختر ما يناسبك لإضافته إلى السلة وطلب أكثر من قماش دفعة واحدة.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsCartOpen(false)}
+                      className="btn-primary-atelier text-xs font-bold px-4 py-2 rounded-xl cursor-pointer"
+                    >
+                      تصفح الأقمشة الآن
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Cart Items List */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-bold text-[#1D3A30]">
+                        <span>الأقمشة المختارة ({cart.length}):</span>
+                        <button
+                          type="button"
+                          onClick={clearCart}
+                          className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                        >
+                          تفريغ السلة
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {cart.map((item) => (
+                          <div
+                            key={item.id}
+                            className="p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 flex items-center justify-between gap-3 shadow-2xs"
+                          >
+                            {/* Image & Title */}
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-14 h-14 rounded-xl bg-white border border-[#C7B895]/30 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                                {item.imageUrl ? (
+                                  <img src={item.imageUrl} alt={item.fullName} className="w-full h-full object-cover" />
+                                ) : (
+                                  <Layers className="w-6 h-6 text-[#A99872] opacity-60" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-xs font-black text-[#1D3A30] truncate">
+                                  {item.fullName}
+                                </h4>
+                                <p className="text-[10px] font-mono font-bold text-[#A99872]">
+                                  {item.pricePerMeter.toFixed(3)} د.ب <span className="font-sans font-normal text-[#1D3A30]/60">/ متر</span>
+                                </p>
+                                <p className="text-[10px] font-mono font-black text-[#1D3A30] mt-0.5">
+                                  الإجمالي: {item.totalPrice.toFixed(3)} د.ب
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Stepper & Delete */}
+                            <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                              <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-[#C7B895]/40 shadow-2xs">
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartItemMeters(item.id, -0.5)}
+                                  className="w-6 h-6 rounded-lg bg-[#FAF7F0] border border-[#C7B895]/20 font-bold text-xs text-[#1D3A30] flex items-center justify-center hover:bg-[#F2ECE0] active:scale-95 cursor-pointer"
+                                  title="إنقاص نصف متر"
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono text-xs font-black text-[#1D3A30] px-1.5 min-w-[42px] text-center">
+                                  {item.meters} م
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => updateCartItemMeters(item.id, +0.5)}
+                                  className="w-6 h-6 rounded-lg bg-[#FAF7F0] border border-[#C7B895]/20 font-bold text-xs text-[#1D3A30] flex items-center justify-center hover:bg-[#F2ECE0] active:scale-95 cursor-pointer"
+                                  title="زيادة نصف متر"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.id)}
+                                className="text-[10px] text-rose-600 hover:text-rose-700 flex items-center gap-0.5 cursor-pointer font-bold"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>حذف</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsCartOpen(false)}
+                        className="w-full py-2.5 rounded-xl border border-dashed border-[#C7B895]/60 text-xs font-bold text-[#1D3A30] hover:bg-[#FAF7F0] transition flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-[#A99872]" />
+                        <span>إضافة قماش آخر من المتجر</span>
+                      </button>
+                    </div>
+
+                    {/* Customer Info (Name & Phone) */}
+                    <div className="p-3.5 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 space-y-2.5">
+                      <div className="flex items-center justify-between text-xs font-black text-[#1D3A30]">
+                        <span>بيانات العميل (لتسجيل الطلب بالسيستم):</span>
+                        <span className="text-[10px] font-mono text-[#A99872]">#{customerId}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <label className="block text-[10px] font-bold text-[#1D3A30]/75 mb-1">
+                            الاسم الكريم (اختياري):
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="مثال: علي محمد"
+                            value={customerName}
+                            onChange={(e) => setCustomerName(e.target.value)}
+                            className="w-full p-2 rounded-xl bg-white border border-[#C7B895]/40 text-xs text-[#1D3A30] focus:outline-none focus:ring-1 focus:ring-[#1D3A30]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-[#1D3A30]/75 mb-1">
+                            رقم الهاتف للتواصل (اختياري):
+                          </label>
+                          <input
+                            type="tel"
+                            placeholder="مثال: 39xxxxxx"
+                            value={customerPhone}
+                            onChange={(e) => setCustomerPhone(e.target.value)}
+                            className="w-full p-2 rounded-xl bg-white border border-[#C7B895]/40 text-xs font-mono text-[#1D3A30] focus:outline-none focus:ring-1 focus:ring-[#1D3A30]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Receiving & Delivery Option */}
+                    <div className="p-3.5 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 space-y-2.5">
+                      <label className="block text-xs font-black text-[#1D3A30]">
+                        طريقة الاستلام:
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryType('قدوم شخصي')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                            deliveryType === 'قدوم شخصي'
+                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40'
+                          }`}
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>استلام من المقر</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeliveryType('توصيل')}
+                          className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                            deliveryType === 'توصيل'
+                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
+                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40'
+                          }`}
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>خدمة التوصيل بالبحرين</span>
+                        </button>
+                      </div>
+
+                      {deliveryType === 'توصيل' && (
+                        <div className="pt-2 border-t border-[#C7B895]/25 space-y-2.5">
+                          <LocationPickerMap
+                            location={customerLocation}
+                            onChange={(loc) => setCustomerLocation(loc)}
+                          />
+                          <input
+                            type="text"
+                            placeholder="ملاحظات أو تفاصيل إضافية للعنوان (اختياري)..."
+                            value={deliveryNotes}
+                            onChange={(e) => setDeliveryNotes(e.target.value)}
+                            className="w-full p-2.5 rounded-xl bg-white border border-[#C7B895]/40 text-xs text-[#1D3A30] focus:outline-none focus:ring-1 focus:ring-[#1D3A30]"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Price Breakdown in Cart */}
+                    <div className="p-4 rounded-2xl bg-[#1D3A30] text-[#FAF7F0] space-y-2 shadow-sm border border-[#C7B895]/30">
+                      <div className="flex items-center justify-between text-xs text-[#FAF7F0]/80">
+                        <span>إجمالي الأقمشة ({cartTotalMeters} متر):</span>
+                        <span className="font-mono font-bold">{cartSubtotal.toFixed(3)} د.ب</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
+                        <span>رسوم التوصيل:</span>
+                        <span className="font-mono font-bold">
+                          {deliveryType === 'توصيل' ? `+${deliveryFee.toFixed(3)} د.ب` : '0.000 د.ب (استلام من المقر)'}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between pt-1 border-t border-[#C7B895]/20">
+                        <span className="text-xs font-extrabold text-[#E8D5A8]">
+                          الإجمالي النهائي:
+                        </span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-xl font-black text-white font-mono">{cartGrandTotal.toFixed(3)}</span>
+                          <span className="text-xs font-bold text-[#E8D5A8]">د.ب</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Submit Order via WhatsApp & Register in DB */}
+                    <div className="space-y-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleCartCheckout}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black transition flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer"
+                      >
+                        <WhatsAppIcon className="w-4 h-4 text-white" />
+                        <span>تأكيد طلب السلة عبر واتساب والتسجيل الفوري بالسيستم</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </motion.div>
           </div>
         )}

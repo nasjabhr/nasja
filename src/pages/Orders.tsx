@@ -540,6 +540,35 @@ export default function Orders() {
     saveOrders(updated);
   };
 
+  const handleConfirmOrder = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const updated = orders.map(o => {
+      if (o.id === id) {
+        return {
+          ...o,
+          status: 'تم التسليم' as OrderStatus,
+          paymentStatus: 'تم الدفع' as PaymentStatus
+        };
+      }
+      return o;
+    });
+    saveOrders(updated);
+  };
+
+  const handleCancelOrder = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const updated = orders.map(o => {
+      if (o.id === id) {
+        return {
+          ...o,
+          status: 'ملغي' as OrderStatus
+        };
+      }
+      return o;
+    });
+    saveOrders(updated);
+  };
+
   const generatePDF = async (order: Order) => {
     const element = document.getElementById('printable-invoice');
     if (element) {
@@ -1051,6 +1080,37 @@ export default function Orders() {
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                </div>
+
+                {/* Direct Action Buttons: Confirm (Green) & Cancel (Red) */}
+                <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-[#C7B895]/25">
+                  <button
+                    type="button"
+                    onClick={(e) => handleConfirmOrder(order.id, e)}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 ${
+                      order.status === 'تم التسليم' && order.paymentStatus === 'تم الدفع'
+                        ? 'bg-emerald-800 text-emerald-100 ring-1 ring-emerald-500/50'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    }`}
+                    title="تأكيد الطلب واعتماد الدفع"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{order.status === 'تم التسليم' && order.paymentStatus === 'تم الدفع' ? 'تم تأكيد الطلب ✓' : 'تم تأكيد الطلب'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleCancelOrder(order.id, e)}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 ${
+                      order.status === 'ملغي'
+                        ? 'bg-rose-950 text-rose-200 ring-1 ring-rose-500/50'
+                        : 'bg-rose-600 hover:bg-rose-700 text-white'
+                    }`}
+                    title="إلغاء الطلب"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>{order.status === 'ملغي' ? 'الطلب ملغي ✕' : 'تم إلغاء الطلب'}</span>
+                  </button>
                 </div>
               </motion.div>
             );
