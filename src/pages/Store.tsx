@@ -719,7 +719,7 @@ ${deliveryFeeLine}
 
     const waMsg = `السلام عليكم ورحمة الله وبركاته، دار نَسْجَة للأقمشة الفاخرة
 أود تأكيد طلب سلة الأقمشة التالية:
-• رقم العميل: #${customerId}
+• رمز الطلب: #${customerId}
 ${customerName.trim() ? `• الاسم: ${customerName.trim()}\n` : ''}${customerPhone.trim() ? `• الهاتف: ${customerPhone.trim()}\n` : ''}
 قائمة الأقمشة المطلوبة:
 ${itemsSummary}
@@ -735,7 +735,7 @@ ${deliveryFeeLine}
     // Clear cart & close drawer
     clearCart();
     setIsCartOpen(false);
-    showCartToast('تم تسجيل طلبك بنجاح وجارٍ فتح محادثة واتساب للتأكيد 💬');
+    showCartToast('تم تأكيد طلبك بنجاح وجارٍ فتح محادثة واتساب للتواصل 💬');
 
     window.open(waUrl, '_blank');
   };
@@ -743,7 +743,7 @@ ${deliveryFeeLine}
   if (loading) {
     return (
       <SplashScreen
-        statusText="جارِ تجهيز تشكيلة الأقمشة الفاخرة من قاعدة البيانات..."
+        statusText="جارِ تجهيز تشكيلة الأقمشة الفاخرة..."
         subTitle={storeSettings.storeTagline || 'أقمشة رجالية فاخرة ومختارة بعناية'}
         onRetry={() => fetchCatalogAndSettings(true)}
       />
@@ -903,7 +903,7 @@ ${deliveryFeeLine}
                         className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[#1D3A30] hover:bg-[#FAF7F0] transition text-right cursor-pointer"
                       >
                         <RotateCw className="w-4 h-4 text-[#A99872]" />
-                        <span>تحديث الأقمشة من الخادم</span>
+                        <span>تحديث قائمة الأقمشة</span>
                       </button>
 
                       <a
@@ -1746,14 +1746,11 @@ ${deliveryFeeLine}
                   </div>
                   <div>
                     <h3 className="text-sm font-black text-white">
-                      سلة المشتريات ({cart.length} أقمشة)
+                      سلة المشتريات ({cart.length} {cart.length === 1 ? 'قماش' : cart.length === 2 ? 'قماشان' : 'أقمشة'})
                     </h3>
-                    <div className="flex items-center gap-1.5 text-[10px] text-[#E8D5A8]">
-                      <span>رقم العميل:</span>
-                      <span className="font-mono font-bold bg-white/10 px-1.5 py-0.5 rounded border border-[#C7B895]/30">
-                        #{customerId}
-                      </span>
-                    </div>
+                    <p className="text-[10px] text-[#E8D5A8]/80 font-medium">
+                      أقمشة مختارة بعناية فائقة
+                    </p>
                   </div>
                 </div>
 
@@ -1879,8 +1876,7 @@ ${deliveryFeeLine}
                     {/* Customer Info (Name & Phone) */}
                     <div className="p-3.5 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/35 space-y-2.5">
                       <div className="flex items-center justify-between text-xs font-black text-[#1D3A30]">
-                        <span>بيانات العميل (لتسجيل الطلب بالسيستم):</span>
-                        <span className="text-[10px] font-mono text-[#A99872]">#{customerId}</span>
+                        <span>بيانات التواصل (اختياري):</span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         <div>
@@ -1990,7 +1986,7 @@ ${deliveryFeeLine}
                         className="w-full py-3.5 px-4 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-black transition flex items-center justify-center gap-2 shadow-md active:scale-98 cursor-pointer"
                       >
                         <WhatsAppIcon className="w-4 h-4 text-white" />
-                        <span>تأكيد طلب السلة عبر واتساب والتسجيل الفوري بالسيستم</span>
+                        <span>تأكيد الطلب وإرساله عبر واتساب 💬</span>
                       </button>
                     </div>
                   </>

@@ -555,18 +555,9 @@ export default function Orders() {
     saveOrders(updated);
   };
 
-  const handleCancelOrder = (id: string, e?: React.MouseEvent) => {
+  const handleCancelOrder = (order: Order, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const updated = orders.map(o => {
-      if (o.id === id) {
-        return {
-          ...o,
-          status: 'ملغي' as OrderStatus
-        };
-      }
-      return o;
-    });
-    saveOrders(updated);
+    setOrderToDelete(order);
   };
 
   const generatePDF = async (order: Order) => {
@@ -1100,16 +1091,12 @@ export default function Orders() {
 
                   <button
                     type="button"
-                    onClick={(e) => handleCancelOrder(order.id, e)}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 ${
-                      order.status === 'ملغي'
-                        ? 'bg-rose-950 text-rose-200 ring-1 ring-rose-500/50'
-                        : 'bg-rose-600 hover:bg-rose-700 text-white'
-                    }`}
-                    title="إلغاء الطلب"
+                    onClick={(e) => handleCancelOrder(order, e)}
+                    className="py-2 px-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95 bg-rose-600 hover:bg-rose-700 text-white"
+                    title="إلغاء وحذف الطلب نهائياً من قاعدة البيانات"
                   >
                     <X className="w-3.5 h-3.5" />
-                    <span>{order.status === 'ملغي' ? 'الطلب ملغي ✕' : 'تم إلغاء الطلب'}</span>
+                    <span>تم إلغاء الطلب</span>
                   </button>
                 </div>
               </motion.div>
@@ -1865,16 +1852,16 @@ export default function Orders() {
               <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto border border-rose-200">
                 <AlertTriangle className="w-6 h-6" />
               </div>
-              <h3 className="text-sm font-bold text-[#1D3A30]">تأكيد حذف الطلب</h3>
+              <h3 className="text-sm font-bold text-[#1D3A30]">تأكيد إلغاء وحذف الطلب</h3>
               <p className="text-xs text-[#1D3A30]/70">
-                هل أنت متأكد من رغبتك في حذف طلب "{orderToDelete.customerName}" بمبلغ {orderToDelete.price} د.ب نهائياً من السجل؟
+                هل أنت متأكد من رغبتك في إلغاء وحذف طلب "{orderToDelete.customerName}" بمبلغ {orderToDelete.price} د.ب نهائياً من قاعدة البيانات واسترجاع المخزون؟
               </p>
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <button
                   onClick={confirmDeleteOrder}
-                  className="py-2.5 bg-rose-600 text-white font-bold rounded-xl text-xs hover:bg-rose-700 transition shadow-xs"
+                  className="py-2.5 bg-rose-600 text-white font-bold rounded-xl text-xs hover:bg-rose-700 transition shadow-xs cursor-pointer"
                 >
-                  نعم، احذف الطلب
+                  نعم، إلغاء وحذف الطلب
                 </button>
                 <button
                   onClick={() => setOrderToDelete(null)}

@@ -11,7 +11,7 @@ interface SplashScreenProps {
 }
 
 export default function SplashScreen({
-  statusText = 'جارِ تحميل بيانات نَسْجَة من قاعدة البيانات...',
+  statusText = 'جارِ تجهيز تشكيلة نَسْجَة الفاخرة...',
   error = null,
   onRetry,
   subTitle = 'أقمشة وخياطة راقية • مملكة البحرين',

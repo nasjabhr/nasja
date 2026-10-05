@@ -1,7 +1,7 @@
 // Application Version and Strict Anti-Cache Engine
 // Incremented to force browsers, PWAs, and caches to flush completely
-export const APP_VERSION = '4.7.6';
-export const APP_BUILD_DATE = '2026.10.05-cart-and-order-actions-v1';
+export const APP_VERSION = '4.7.7';
+export const APP_BUILD_DATE = '2026.10.05-clean-customer-ui-v1';
 
 // Universal cache invalidation check for browsers and service workers
 export function ensureLatestVersionLoaded() {
