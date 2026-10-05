@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Fabric, CRITICAL_FABRIC_THRESHOLD, SourcingType } from '../types';
-import { Plus, AlertCircle, Image as ImageIcon, Upload, Trash2, Edit3, Search, X, BookOpen, Package, Check, Sparkles } from 'lucide-react';
+import { Plus, AlertCircle, Image as ImageIcon, Upload, Trash2, Edit3, Search, X, BookOpen, Package, Check, Sparkles, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { persistInventory, deleteFabricPermanently, getLocalData, syncWithServer, EVENT_DATA_UPDATED } from '../lib/dataService';
 
@@ -39,6 +39,8 @@ export default function Inventory() {
   const [activeTab, setActiveTab] = useState<'أقمشة' | 'تغليف'>('أقمشة');
   const [sourcingFilter, setSourcingFilter] = useState<'all' | 'catalog' | 'stock'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const quickPhotoInputRef = useRef<HTMLInputElement>(null);
+  const [quickUploadItemId, setQuickUploadItemId] = useState<string | null>(null);
 
   useEffect(() => {
     const local = getLocalData();
@@ -113,6 +115,57 @@ export default function Inventory() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const triggerQuickPhotoUpload = (itemId: string) => {
+    setQuickUploadItemId(itemId);
+    quickPhotoInputRef.current?.click();
+  };
+
+  const handleQuickPhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetId = quickUploadItemId;
+    if (file && targetId) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxDim = 800;
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxDim) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            }
+          } else {
+            if (height > maxDim) {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+            setInventory(prev => {
+              const updated = prev.map(item =>
+                item.id === targetId ? { ...item, imageUrl: compressedDataUrl } : item
+              );
+              persistInventory(updated);
+              return updated;
+            });
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    }
+    if (e.target) e.target.value = '';
+    setQuickUploadItemId(null);
   };
 
   const openAddModal = () => {
@@ -332,6 +385,15 @@ export default function Inventory() {
 
   return (
     <div className="space-y-3.5 pb-6">
+      {/* Hidden file input for 1-click quick photo updates directly from card */}
+      <input
+        type="file"
+        ref={quickPhotoInputRef}
+        onChange={handleQuickPhotoSelected}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Top Header & Add Button */}
       <div className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-[#C7B895]/30 shadow-xs">
         <div>
@@ -476,12 +538,22 @@ export default function Inventory() {
               >
                 {/* Right: Image + Name & Info */}
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div className="w-12 h-12 rounded-xl bg-[#FAF7F0] flex-shrink-0 overflow-hidden border border-[#C7B895]/30 flex items-center justify-center shadow-2xs">
+                  <div 
+                    onClick={() => triggerQuickPhotoUpload(item.id)}
+                    className="relative w-12 h-12 rounded-xl bg-[#FAF7F0] flex-shrink-0 overflow-hidden border border-[#C7B895]/30 flex items-center justify-center shadow-2xs group cursor-pointer hover:border-[#1D3A30] transition active:scale-95"
+                    title="اضغط لتغيير أو إضافة صورة هذا القماش مباشرة"
+                  >
                     {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
                     ) : (
                       <ImageIcon className="w-5 h-5 text-[#A99872]" />
                     )}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition backdrop-blur-2xs">
+                      <Camera className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="absolute bottom-0 left-0 bg-[#1D3A30]/80 p-0.5 rounded-tr-md sm:hidden">
+                      <Camera className="w-2.5 h-2.5 text-[#E8D5A8]" />
+                    </div>
                   </div>
                   <div className="min-w-0 flex-1 text-right">
                     <div className="flex items-center gap-1.5 flex-wrap">

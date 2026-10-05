@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, 
@@ -15,11 +15,15 @@ import {
   RotateCw,
   Sun,
   Snowflake,
-  Leaf
+  Leaf,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn
 } from 'lucide-react';
 import NasjahLogo from '../components/NasjahLogo';
 import SplashScreen from '../components/SplashScreen';
 import WhatsAppIcon from '../components/WhatsAppIcon';
+import LocationPickerMap, { LocationCoordinates } from '../components/LocationPickerMap';
 import { StoreSettings, BahrainGovernorateName, BAHRAIN_GOVERNORATES } from '../types';
 import { getLocalStoreSettings, fetchPublicStore, EVENT_STORE_SETTINGS_UPDATED } from '../lib/dataService';
 
@@ -85,13 +89,14 @@ export default function Store() {
   // Horizontal meters slider: minimum 1.0 meter, default 3.5 meters
   const [customMeters, setCustomMeters] = useState<number>(3.5);
 
-  // Receiving mechanism: 'قدوم شخصي' (استلام من المقر مجاناً) or 'توصيل' (بحسب مصفوفة البحرين)
+  // Receiving mechanism: 'قدوم شخصي' (استلام من المقر) or 'توصيل' (خدمة التوصيل بالبحرين)
   const [deliveryType, setDeliveryType] = useState<'قدوم شخصي' | 'توصيل'>('قدوم شخصي');
-  const [customerGovernorate, setCustomerGovernorate] = useState<BahrainGovernorateName>('المحافظة الشمالية');
-  const [customerArea, setCustomerArea] = useState<string>(BAHRAIN_GOVERNORATES['المحافظة الشمالية'].areas[0] || 'سار');
-  const [customerHouse, setCustomerHouse] = useState<string>('');
-  const [customerBlock, setCustomerBlock] = useState<string>('');
-  const [customerRoad, setCustomerRoad] = useState<string>('');
+  const [customerLocation, setCustomerLocation] = useState<LocationCoordinates | null>(null);
+  const [deliveryNotes, setDeliveryNotes] = useState<string>('');
+
+  // Image Gallery Lightbox state & touch swipe tracking
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const touchStartXRef = useRef<number | null>(null);
 
   // Live update if settings change in admin
   useEffect(() => {
@@ -387,15 +392,51 @@ export default function Store() {
   const handleCloseProductModal = () => {
     setActiveProduct(null);
     setSelectedOption(null);
+    setLightboxOpen(false);
   };
 
-  // Fabric & Delivery calculations according to the Bahrain Delivery Matrix
+  // Cycle through options in the set (AliExpress / Temu style)
+  const handleNextOption = () => {
+    if (!activeProduct || activeProduct.options.length <= 1) return;
+    const currentIndex = activeProduct.options.findIndex((o) => o.id === selectedOption?.id);
+    const nextIndex = (currentIndex + 1) % activeProduct.options.length;
+    setSelectedOption(activeProduct.options[nextIndex]);
+  };
+
+  const handlePrevOption = () => {
+    if (!activeProduct || activeProduct.options.length <= 1) return;
+    const currentIndex = activeProduct.options.findIndex((o) => o.id === selectedOption?.id);
+    const prevIndex = (currentIndex - 1 + activeProduct.options.length) % activeProduct.options.length;
+    setSelectedOption(activeProduct.options[prevIndex]);
+  };
+
+  // Touch swipe support for mobile gallery
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    if (Math.abs(deltaX) > 40) {
+      if (deltaX < 0) {
+        handleNextOption();
+      } else {
+        handlePrevOption();
+      }
+    }
+    touchStartXRef.current = null;
+  };
+
+  // Fabric & Delivery calculations
   const currentPrice = selectedOption?.price || activeProduct?.defaultPrice || 0;
   const fabricSubtotal = currentPrice * customMeters;
-  const deliveryFee = deliveryType === 'توصيل' ? (BAHRAIN_GOVERNORATES[customerGovernorate]?.fee ?? 0.500) : 0;
+  const deliveryFee = deliveryType === 'توصيل' 
+    ? (customerLocation ? (customerLocation.lat > 26.24 && customerLocation.lng > 50.59 ? 2.000 : (customerLocation.lng < 50.51 && customerLocation.lat >= 26.12 ? 0.500 : 1.000)) : 1.000)
+    : 0;
   const estimatedGrandTotal = fabricSubtotal + deliveryFee;
 
-  // Exact WhatsApp Link format with Bahrain Delivery Matrix & 3 decimals
+  // Exact WhatsApp Link format with Location Pin & 3 decimals
   const getWhatsAppLink = (product?: StoreProduct, option?: StoreFabricOption, meters?: number) => {
     const targetProduct = product || activeProduct;
     const targetOption = option || selectedOption;
@@ -409,22 +450,22 @@ export default function Store() {
     const formattedMetersStr = Number(defaultMeters).toString();
     const unitPriceStr = Number(targetOption.price).toFixed(3);
     const fabricTotalStr = (targetOption.price * defaultMeters).toFixed(3);
-    const activeDeliveryFee = deliveryType === 'توصيل' ? (BAHRAIN_GOVERNORATES[customerGovernorate]?.fee ?? 0.500) : 0;
+    const activeDeliveryFee = deliveryFee;
     const grandTotalStr = ((targetOption.price * defaultMeters) + activeDeliveryFee).toFixed(3);
 
-    let deliveryMethodStr = 'استلام شخصي من المقر (مجاناً - 0.000 د.ب)';
+    let deliveryMethodStr = 'استلام شخصي من المقر (0.000 د.ب)';
     let deliveryFeeLine = '• رسوم التوصيل: 0.000 د.ب (استلام شخصي من المقر)';
 
     if (deliveryType === 'توصيل') {
-      const gov = customerGovernorate;
-      const area = customerArea || '...';
-      const house = customerHouse.trim() ? `منزل/مبنى: ${customerHouse.trim()}` : '';
-      const block = customerBlock.trim() ? `مجمع: ${customerBlock.trim()}` : '';
-      const road = customerRoad.trim() ? `طريق: ${customerRoad.trim()}` : '';
-      const addressDetails = [house, block, road].filter(Boolean).join(' / ');
+      const mapsLink = customerLocation
+        ? `https://maps.google.com/?q=${customerLocation.lat.toFixed(6)},${customerLocation.lng.toFixed(6)}`
+        : 'سيتم تزويدكم باللوكيشن المباشر عبر المحادثة';
 
-      deliveryMethodStr = `توصيل لمملكة البحرين - ${gov} (${area})${addressDetails ? `\n• تفاصيل العنوان: ${addressDetails}` : ''}`;
-      deliveryFeeLine = `• رسوم التوصيل: +${activeDeliveryFee.toFixed(3)} د.ب (${gov})`;
+      deliveryMethodStr = `خدمة التوصيل بمملكة البحرين\n• رابط موقع التوصيل (Google Maps):\n  ${mapsLink}`;
+      if (deliveryNotes.trim()) {
+        deliveryMethodStr += `\n• تفاصيل إضافية للعنوان: ${deliveryNotes.trim()}`;
+      }
+      deliveryFeeLine = `• رسوم التوصيل: +${activeDeliveryFee.toFixed(3)} د.ب`;
     }
 
     const msg = `السلام عليكم ورحمة الله وبركاته، دار نَسْجَة للأقمشة الفاخرة
@@ -858,40 +899,199 @@ ${deliveryFeeLine}
                 </div>
               </div>
 
-              {/* Photo Preview & Pricing Header */}
-              <div className="flex gap-3 items-center p-3 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40">
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-white border border-[#C7B895]/30 flex-shrink-0 shadow-2xs">
+              {/* 1. HIGH-RES IMAGE SHOWCASE GALLERY (Temu / AliExpress Style) */}
+              <div className="space-y-2">
+                <div 
+                  className="relative aspect-4/3 sm:aspect-16/10 max-h-72 sm:max-h-80 w-full rounded-2xl overflow-hidden bg-[#FAF7F0] border border-[#C7B895]/40 shadow-xs select-none group"
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                >
+                  {/* The Main High-Res Image */}
                   {(selectedOption?.imageUrl || activeProduct.imageUrl) ? (
                     <img 
                       src={selectedOption?.imageUrl || activeProduct.imageUrl} 
                       alt={selectedOption?.fullName || activeProduct.baseName}
-                      className="w-full h-full object-cover" 
+                      className="w-full h-full object-cover transition-all duration-300 group-hover:scale-102"
+                      loading="eager"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[#1D3A30]/40">
-                      <Layers className="w-6 h-6 text-[#A99872]" />
+                    <div className="w-full h-full flex flex-col items-center justify-center text-[#1D3A30]/40 p-4">
+                      <Layers className="w-12 h-12 text-[#A99872] mb-2 opacity-60" />
+                      <span className="text-xs font-bold text-[#1D3A30]/60">نَسْجَة للأقمشة الفاخرة</span>
                     </div>
                   )}
-                </div>
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <h3 className="text-xs sm:text-sm font-black text-[#1D3A30] truncate">
-                      {selectedOption?.fullName || activeProduct.baseName}
-                    </h3>
+                  {/* Gradient Vignette */}
+                  <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 via-black/20 to-transparent pointer-events-none" />
+
+                  {/* Navigation Chevrons for cycling options */}
+                  {activeProduct.isSet && activeProduct.options.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePrevOption();
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 hover:bg-[#1D3A30] text-white flex items-center justify-center backdrop-blur-xs transition shadow-md active:scale-90 cursor-pointer z-10"
+                        title="القماش السابق"
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNextOption();
+                        }}
+                        className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/45 hover:bg-[#1D3A30] text-white flex items-center justify-center backdrop-blur-xs transition shadow-md active:scale-90 cursor-pointer z-10"
+                        title="القماش التالي"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
+
+                  {/* Top-Right Badges: Season & Option Counter */}
+                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 z-10">
                     {activeProduct.season && (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white text-[#1D3A30] border border-[#C7B895]/50 shadow-2xs">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF7F0]/95 text-[#1D3A30] border border-[#C7B895]/60 shadow-xs backdrop-blur-xs">
                         {activeProduct.season.includes('ربيع') ? '🌿 ربيعي' : activeProduct.season.includes('شتو') ? '❄️ شتوي' : activeProduct.season.includes('صيف') ? '☀️ صيفي' : activeProduct.season}
                       </span>
                     )}
+
+                    {activeProduct.isSet && activeProduct.options.length > 1 && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#1D3A30]/90 text-[#E8D5A8] border border-[#C7B895]/40 shadow-xs backdrop-blur-xs">
+                        #{selectedOption?.itemNumber} من {activeProduct.options.length}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-baseline gap-1 mt-1 font-mono">
-                    <span className="text-base sm:text-lg font-black text-[#1D3A30]">
-                      {(selectedOption?.price || activeProduct.defaultPrice).toFixed(3)}
-                    </span>
-                    <span className="text-xs font-bold text-[#A99872]">د.ب للمتر</span>
+
+                  {/* Top-Left: Lightbox Zoom Button */}
+                  {(selectedOption?.imageUrl || activeProduct.imageUrl) && (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxOpen(true)}
+                      className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-full bg-black/50 hover:bg-[#1D3A30] text-white text-[10px] font-bold backdrop-blur-xs transition shadow-xs flex items-center gap-1 cursor-pointer z-10"
+                      title="تكبير الصورة بأعلى دقة"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5 text-[#E8D5A8]" />
+                      <span>تكبير</span>
+                    </button>
+                  )}
+
+                  {/* Bottom Text Overlay */}
+                  <div className="absolute bottom-2.5 inset-x-3 flex items-end justify-between z-10 text-white">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-black text-white truncate drop-shadow-sm">
+                        {selectedOption?.fullName || activeProduct.baseName}
+                      </h3>
+                      {activeProduct.isSet && activeProduct.options.length > 1 && (
+                        <p className="text-[10px] text-[#E8D5A8] font-bold">
+                          اسحب لليمين أو اليسار للتنقل بين الأقمشة
+                        </p>
+                      )}
+                    </div>
+                    <div className="bg-[#1D3A30]/90 border border-[#C7B895]/50 px-2.5 py-1 rounded-xl shadow-xs font-mono text-xs font-black text-[#E8D5A8] flex-shrink-0">
+                      {(selectedOption?.price || activeProduct.defaultPrice).toFixed(3)} د.ب / م
+                    </div>
                   </div>
                 </div>
+
+                {/* Lightbox Modal (Full-Screen High-Resolution Inspection) */}
+                <AnimatePresence>
+                  {lightboxOpen && (selectedOption?.imageUrl || activeProduct.imageUrl) && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 cursor-zoom-out"
+                      onClick={() => setLightboxOpen(false)}
+                    >
+                      <div className="absolute top-4 right-4 z-50">
+                        <button
+                          type="button"
+                          onClick={() => setLightboxOpen(false)}
+                          className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                        >
+                          <X className="w-6 h-6" />
+                        </button>
+                      </div>
+                      <img
+                        src={selectedOption?.imageUrl || activeProduct.imageUrl}
+                        alt={selectedOption?.fullName || activeProduct.baseName}
+                        className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <p className="text-white/80 text-xs font-bold mt-3 text-center">
+                        {selectedOption?.fullName || activeProduct.baseName} — جودة فائقة وتفاصيل الخياطة
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* 2. THUMBNAIL STRIP (Temu / AliExpress Style) */}
+                {activeProduct.isSet && activeProduct.options.length > 1 && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between text-xs font-bold text-[#1D3A30]">
+                      <span className="flex items-center gap-1.5">
+                        <span>خيارات المجموعة:</span>
+                        <span className="text-[#A99872] text-[10px]">({activeProduct.options.length} أقمشة)</span>
+                      </span>
+                      <span className="text-[10px] text-[#A99872] font-mono font-bold">
+                        المحدد: #{selectedOption?.itemNumber}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1.5 px-0.5">
+                      {activeProduct.options.map((opt) => {
+                        const isSelected = selectedOption?.id === opt.id;
+                        const isOut = opt.isOutOfStock;
+                        const thumbImg = opt.imageUrl || activeProduct.imageUrl;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            disabled={isOut}
+                            onClick={() => {
+                              if (!isOut) setSelectedOption(opt);
+                            }}
+                            className={`relative flex-shrink-0 w-16 h-16 sm:w-18 sm:h-18 rounded-2xl overflow-hidden border-2 transition-all cursor-pointer group active:scale-95 ${
+                              isOut
+                                ? 'opacity-40 border-stone-200 cursor-not-allowed'
+                                : isSelected
+                                ? 'border-[#1D3A30] ring-2 ring-[#C7B895] shadow-md scale-105'
+                                : 'border-[#C7B895]/40 hover:border-[#1D3A30]/60 bg-white'
+                            }`}
+                            title={opt.fullName}
+                          >
+                            {thumbImg ? (
+                              <img src={thumbImg} alt={opt.fullName} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-[#FAF7F0] text-[#1D3A30]/40 text-xs font-bold">
+                                {opt.itemNumber}
+                              </div>
+                            )}
+
+                            {/* Number badge on thumbnail */}
+                            <div className={`absolute bottom-0 inset-x-0 py-0.5 text-center text-[10px] font-black font-mono transition-colors ${
+                              isSelected ? 'bg-[#1D3A30] text-[#E8D5A8]' : 'bg-black/60 text-white'
+                            }`}>
+                              {opt.itemNumber}
+                            </div>
+
+                            {isOut && (
+                              <div className="absolute inset-0 bg-stone-900/65 flex items-center justify-center text-white text-[9px] font-bold">
+                                نفد
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Description if available */}
@@ -901,19 +1101,19 @@ ${deliveryFeeLine}
                 </div>
               )}
 
-              {/* NUMBERED SET SELECTOR (When product has multiple items) */}
+              {/* NUMBERED SELECTION GRID (Shows ONLY the number: 1, 2, 3...) */}
               {activeProduct.isSet && activeProduct.options.length > 1 && (
                 <div className="p-3.5 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40 space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-black text-[#1D3A30]">
-                      اختر رقم القماش من المجموعة:
+                      اختر رقم القماش:
                     </label>
-                    <span className="text-[10px] text-[#A99872] font-bold">
-                      المحدد: {selectedOption?.fullName}
+                    <span className="text-[10px] text-[#A99872] font-mono font-bold">
+                      المحدد: #{selectedOption?.itemNumber}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-5 sm:grid-cols-5 gap-1.5">
                     {activeProduct.options.map((opt) => {
                       const isSelected = selectedOption?.id === opt.id;
                       const isOut = opt.isOutOfStock;
@@ -925,22 +1125,20 @@ ${deliveryFeeLine}
                           onClick={() => {
                             if (!isOut) setSelectedOption(opt);
                           }}
-                          className={`p-2.5 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-0.5 active:scale-98 ${
+                          className={`py-2 px-1 rounded-xl border text-center transition cursor-pointer flex flex-col items-center justify-center gap-0.5 active:scale-95 ${
                             isOut
-                              ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed opacity-80'
+                              ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed opacity-70'
                               : isSelected
-                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs'
-                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#F2ECE0]'
+                              ? 'bg-[#1D3A30] text-[#E8D5A8] border-[#1D3A30] shadow-xs scale-[1.02]'
+                              : 'bg-white text-[#1D3A30] border-[#C7B895]/40 hover:bg-[#FAF7F0]'
                           }`}
                         >
-                          <span className="text-xs font-black">رقم {opt.itemNumber}</span>
+                          <span className="text-sm font-black font-mono">{opt.itemNumber}</span>
                           {isOut ? (
-                            <span className="text-[9px] font-bold text-rose-600 bg-rose-50 px-1 py-0.2 rounded">
-                              انتهت الكمية
-                            </span>
+                            <span className="text-[8px] font-bold text-rose-600">نفد</span>
                           ) : (
-                            <span className={`text-[10px] font-mono ${isSelected ? 'text-[#E8D5A8]' : 'text-emerald-700 font-bold'}`}>
-                              {opt.price.toFixed(3)} د.ب
+                            <span className={`text-[9px] font-mono ${isSelected ? 'text-[#E8D5A8]' : 'text-[#A99872] font-bold'}`}>
+                              {opt.price.toFixed(3)}
                             </span>
                           )}
                         </button>
@@ -950,7 +1148,7 @@ ${deliveryFeeLine}
                 </div>
               )}
 
-              {/* HORIZONTAL METERS SLIDER (Minimum 1 meter, Default 3.5 meters) */}
+              {/* 3. HORIZONTAL METERS SLIDER (Mathematically aligned ticks & steppers) */}
               <div className="p-4 rounded-2xl bg-[#FAF7F0] border border-[#C7B895]/40 space-y-3.5 shadow-2xs">
                 <div className="flex items-center justify-between">
                   <div>
@@ -958,7 +1156,7 @@ ${deliveryFeeLine}
                       حدد عدد الأمتار المطلوبة:
                     </label>
                     <span className="text-[10px] text-[#A99872] font-semibold">
-                      حرك المؤشر الأفقي (أقل حد يمكن طلبه 1 متر)
+                      حرك المؤشر الأفقي (أقل حد 1 متر)
                     </span>
                   </div>
                   
@@ -986,22 +1184,54 @@ ${deliveryFeeLine}
                   </div>
                 </div>
 
-                {/* The Horizontal Range Slider */}
-                <div className="space-y-1.5 pt-1">
-                  <input
-                    type="range"
-                    min={1.0}
-                    max={25.0}
-                    step={0.5}
-                    value={customMeters}
-                    onChange={(e) => setCustomMeters(parseFloat(e.target.value))}
-                    className="w-full accent-[#1D3A30] cursor-pointer h-2 bg-[#E8D5A8]/50 rounded-lg"
-                  />
-                  <div className="flex justify-between text-[10px] text-[#1D3A30]/65 font-mono font-bold px-1">
-                    <span>1 متر</span>
-                    <span className="text-[#1D3A30] font-black">3.5 م (ثوب كامل)</span>
-                    <span>10 م</span>
-                    <span>22.5 م (طاقة)</span>
+                {/* The Horizontal Range Slider with mathematically aligned ticks */}
+                <div className="space-y-2 pt-1" dir="ltr">
+                  <div className="relative w-full">
+                    <input
+                      type="range"
+                      min={1.0}
+                      max={25.0}
+                      step={0.5}
+                      value={customMeters}
+                      onChange={(e) => setCustomMeters(parseFloat(e.target.value))}
+                      className="w-full accent-[#1D3A30] cursor-pointer h-2.5 bg-[#E8D5A8]/50 rounded-lg relative z-10"
+                    />
+                  </div>
+
+                  {/* Geometrically aligned tick marks and labels */}
+                  <div className="relative w-full h-7 select-none">
+                    {[
+                      { val: 1.0, label: '1 م' },
+                      { val: 3.5, label: '3.5 م (ثوب كامل)' },
+                      { val: 10.0, label: '10 م' },
+                      { val: 22.5, label: '22.5 م (طاقة)' },
+                    ].map((tick) => {
+                      const pct = ((tick.val - 1.0) / (25.0 - 1.0)) * 100;
+                      const isSelected = Math.abs(customMeters - tick.val) < 0.25;
+                      return (
+                        <div
+                          key={tick.val}
+                          onClick={() => setCustomMeters(tick.val)}
+                          className="absolute -translate-x-1/2 flex flex-col items-center cursor-pointer transition-all group"
+                          style={{ left: `${pct}%` }}
+                        >
+                          <div
+                            className={`w-0.5 rounded-full mb-0.5 transition-all ${
+                              isSelected ? 'h-2.5 bg-[#1D3A30]' : 'h-1.5 bg-[#C7B895]/80 group-hover:bg-[#1D3A30]'
+                            }`}
+                          />
+                          <span
+                            className={`text-[9px] font-mono whitespace-nowrap transition-all ${
+                              isSelected
+                                ? 'text-[#1D3A30] font-black scale-105'
+                                : 'text-[#1D3A30]/65 font-bold group-hover:text-[#1D3A30]'
+                            }`}
+                          >
+                            {tick.label}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -1031,7 +1261,7 @@ ${deliveryFeeLine}
                 </div>
               </div>
 
-              {/* RECEIVING MECHANISM (Bahrain Delivery Matrix) */}
+              {/* 4. RECEIVING MECHANISM (استلام من المقر / خدمة التوصيل بالخريطة) */}
               <div className="p-3 sm:p-3.5 rounded-2xl bg-white border border-[#C7B895]/40 space-y-2.5 shadow-2xs">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-[#1D3A30] flex items-center gap-1.5">
@@ -1051,7 +1281,7 @@ ${deliveryFeeLine}
                     }`}
                   >
                     <User className="w-3.5 h-3.5" />
-                    <span>استلام من المقر (مجاناً)</span>
+                    <span>استلام من المقر</span>
                   </button>
 
                   <button
@@ -1071,7 +1301,7 @@ ${deliveryFeeLine}
                 {deliveryType === 'قدوم شخصي' ? (
                   <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[11px] text-[#1D3A30]/80 flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-[#A99872] flex-shrink-0" />
-                    <span>الاستلام الشخصي مجاناً (0.000 د.ب) — سنقوم بتزويدك بالموقع عبر واتساب فور تأكيد الطلب.</span>
+                    <span>الاستلام من المقر — سنقوم بتزويدك بالموقع الدقيق عبر واتساب فور تأكيد الطلب للتنسيق.</span>
                   </div>
                 ) : (
                   <motion.div
@@ -1079,110 +1309,47 @@ ${deliveryFeeLine}
                     animate={{ opacity: 1, y: 0 }}
                     className="pt-2 border-t border-[#C7B895]/30 space-y-3"
                   >
-                    {/* Governorate Selector */}
+                    {/* Interactive Google / OpenStreetMap Location Picker with GPS Auto-detection */}
                     <div>
                       <label className="text-[11px] font-bold text-[#1D3A30] flex items-center justify-between mb-1.5">
                         <span className="flex items-center gap-1.5">
                           <MapPin className="w-3.5 h-3.5 text-[#A99872]" />
-                          <span>المحافظة:</span>
+                          <span>موقع التوصيل عبر الخريطة والـ GPS:</span>
                         </span>
                         <span className="text-[10px] text-[#A99872] font-mono font-bold">
                           رسوم التوصيل: +{deliveryFee.toFixed(3)} د.ب
                         </span>
                       </label>
-                      <select
-                        value={customerGovernorate}
-                        onChange={(e) => {
-                          const newGov = e.target.value as BahrainGovernorateName;
-                          setCustomerGovernorate(newGov);
-                          const firstArea = BAHRAIN_GOVERNORATES[newGov]?.areas[0] || '';
-                          setCustomerArea(firstArea);
-                        }}
-                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold shadow-2xs"
-                      >
-                        {(Object.keys(BAHRAIN_GOVERNORATES) as BahrainGovernorateName[]).map((govKey) => (
-                          <option key={govKey} value={govKey}>
-                            {BAHRAIN_GOVERNORATES[govKey].name} — {BAHRAIN_GOVERNORATES[govKey].feeLabel}
-                          </option>
-                        ))}
-                      </select>
+
+                      <LocationPickerMap
+                        location={customerLocation}
+                        onChange={(loc) => setCustomerLocation(loc)}
+                      />
                     </div>
 
-                    {/* Area Selector (Dynamic based on selected governorate) */}
+                    {/* Simple optional delivery notes input */}
                     <div>
-                      <label className="text-[11px] font-bold text-[#1D3A30] flex items-center gap-1.5 mb-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-[#A99872]" />
-                        <span>المنطقة:</span>
+                      <label className="text-[10px] text-[#1D3A30]/80 font-bold block mb-1">
+                        ملاحظات أو تفاصيل إضافية للعنوان (اختياري):
                       </label>
-                      <select
-                        value={customerArea}
-                        onChange={(e) => setCustomerArea(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-bold shadow-2xs"
-                      >
-                        {BAHRAIN_GOVERNORATES[customerGovernorate]?.areas.map((areaName) => (
-                          <option key={areaName} value={areaName}>
-                            {areaName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* 3 Distinct Address Inputs */}
-                    <div>
-                      <span className="text-[11px] font-bold text-[#1D3A30] block mb-1.5">
-                        تفاصيل العنوان (اختياري للتوصيل السريع):
-                      </span>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
-                            المنزل / المبنى:
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="مثال: 123"
-                            value={customerHouse}
-                            onChange={(e) => setCustomerHouse(e.target.value)}
-                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
-                            المجمع:
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="مثال: 456"
-                            value={customerBlock}
-                            onChange={(e) => setCustomerBlock(e.target.value)}
-                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] text-[#1D3A30]/75 font-bold block mb-1">
-                            الطريق / الشارع:
-                          </label>
-                          <input
-                            type="text"
-                            placeholder="مثال: 789"
-                            value={customerRoad}
-                            onChange={(e) => setCustomerRoad(e.target.value)}
-                            className="w-full p-2 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] font-medium text-center shadow-2xs placeholder:text-[#1D3A30]/35"
-                          />
-                        </div>
-                      </div>
+                      <input
+                        type="text"
+                        placeholder="مثال: رقم الشقة / المبنى / علامة مميزة قرب المنزل..."
+                        value={deliveryNotes}
+                        onChange={(e) => setDeliveryNotes(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-[#C7B895]/40 focus:ring-1 focus:ring-[#1D3A30] outline-none text-xs bg-white text-[#1D3A30] shadow-2xs placeholder:text-[#1D3A30]/35 font-medium"
+                      />
                     </div>
 
                     <div className="p-2.5 rounded-xl bg-[#FAF7F0] border border-[#C7B895]/30 text-[11px] text-[#1D3A30] flex items-center justify-between">
-                      <span className="font-bold">رسوم التوصيل المعتمدة ({BAHRAIN_GOVERNORATES[customerGovernorate]?.shortName}):</span>
+                      <span className="font-bold">رسوم خدمة التوصيل بمملكة البحرين:</span>
                       <span className="font-mono font-bold text-[#1D3A30]">+{deliveryFee.toFixed(3)} د.ب</span>
                     </div>
                   </motion.div>
                 )}
               </div>
 
-              {/* Price Calculation Summary (Strict 3-Decimal Calculation) */}
+              {/* 5. PRICE CALCULATION SUMMARY (Strict 3-Decimal Calculation, NO "مجاناً") */}
               <div className="p-4 rounded-2xl bg-[#1D3A30] text-[#FAF7F0] space-y-2 shadow-sm border border-[#C7B895]/30">
                 <div className="flex items-center justify-between text-xs text-[#FAF7F0]/80">
                   <span>قيمة القماش ({customMeters} متر):</span>
@@ -1190,13 +1357,13 @@ ${deliveryFeeLine}
                 </div>
                 {deliveryType === 'توصيل' ? (
                   <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
-                    <span>رسوم التوصيل ({BAHRAIN_GOVERNORATES[customerGovernorate]?.shortName}):</span>
+                    <span>رسوم التوصيل:</span>
                     <span className="font-mono font-bold">+{deliveryFee.toFixed(3)} د.ب</span>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between text-[11px] text-[#E8D5A8]/90">
-                    <span>رسوم التوصيل (استلام شخصي):</span>
-                    <span className="font-mono font-bold">0.000 د.ب (مجاناً)</span>
+                    <span>رسوم التوصيل (استلام من المقر):</span>
+                    <span className="font-mono font-bold">0.000 د.ب</span>
                   </div>
                 )}
                 <div className="flex items-baseline justify-between pt-1 border-t border-[#C7B895]/20">
